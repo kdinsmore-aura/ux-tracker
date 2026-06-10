@@ -79,6 +79,13 @@
         </div>
       </div>
 
+      <a class="sidebar-back" href="../setup/" title="All Studies">
+        <span class="sidebar-back-icon">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 13L5 8l5-5"/></svg>
+        </span>
+        <span class="sidebar-back-label">All Studies</span>
+      </a>
+
       <nav class="sidebar-nav">
         <template x-for="s in navSections" :key="s.id">
           <a class="nav-item" :class="{ active: activeSection === s.id }"
@@ -101,10 +108,16 @@
 
       <!-- Top bar -->
       <header class="topbar">
-        <span class="topbar-study-name" x-text="study?.name || 'Loading…'"></span>
-        <div class="topbar-actions">
+        <div class="topbar-title">
+          <span class="topbar-study-name" x-text="study?.name || 'Loading…'"></span>
           <span class="badge" :class="'badge-' + (study?.status || 'draft')" x-text="study?.status || ''"></span>
-          <a class="btn btn-ghost btn-sm" href="../setup/" title="Back to Studies">← Studies</a>
+        </div>
+        <div class="topbar-meta" x-show="sessions.loaded">
+          <span x-show="study?.created_at" x-text="'Created ' + fmtDate(study?.created_at)"></span>
+          <span class="topbar-meta-sep" x-show="study?.created_at">·</span>
+          <span x-text="participants.list.length + (participants.list.length === 1 ? ' participant' : ' participants')"></span>
+          <span class="topbar-meta-sep">·</span>
+          <span x-text="topbarCompletionRate() + '% completion'"></span>
         </div>
       </header>
 
@@ -671,11 +684,11 @@
             </div>
             <div class="timeline-legend">
               <div class="timeline-legend-item">
-                <div class="timeline-legend-dot" style="background:var(--ok)"></div>
+                <div class="timeline-legend-dot" style="background:#2563EB"></div>
                 On-path click
               </div>
               <div class="timeline-legend-item">
-                <div class="timeline-legend-dot" style="background:var(--danger)"></div>
+                <div class="timeline-legend-dot" style="background:#EA580C;border-radius:2px;transform:rotate(45deg)"></div>
                 Mis-click
               </div>
               <div class="timeline-legend-item">
@@ -733,7 +746,7 @@
   </div><!-- /drawer -->
 
   <!-- Tooltip (portal) -->
-  <div id="timelineTooltip" class="timeline-tooltip" style="display:none;position:fixed"></div>
+  <div id="timelineTooltip" class="timeline-tooltip" style="display:none"></div>
 
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

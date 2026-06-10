@@ -160,8 +160,8 @@ function dashboardApp() {
             this.gateCreds.key = decoded.k;
             this.hasSavedCreds = true;
             localStorage.setItem('uxt_researcher_config', JSON.stringify({
-              supabaseUrl: decoded.u,
-              supabaseKey: decoded.k,
+              url: decoded.u,
+              key: decoded.k,
             }));
             // Remove hash from URL so credentials aren't visible in browser history
             history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -175,9 +175,9 @@ function dashboardApp() {
           const stored = localStorage.getItem('uxt_researcher_config');
           if (stored) {
             const cfg = JSON.parse(stored);
-            if (cfg.supabaseUrl && cfg.supabaseKey) {
-              this.gateCreds.url = cfg.supabaseUrl;
-              this.gateCreds.key = cfg.supabaseKey;
+            if (cfg.url && cfg.key) {
+              this.gateCreds.url = cfg.url;
+              this.gateCreds.key = cfg.key;
               this.hasSavedCreds = true;
             }
           }
@@ -965,8 +965,8 @@ function dashboardApp() {
         : `${ev.event_type}  •  ${this.fmtMs(ev.ms_since_session_start)}`;
       tip.textContent = label;
       tip.style.display = 'block';
-      tip.style.left = Math.max(0, mouseEvent.clientX - 80) + 'px';
-      tip.style.top = (mouseEvent.clientY - 44) + 'px';
+      tip.style.left = mouseEvent.clientX + 'px';
+      tip.style.top = (mouseEvent.clientY - 36) + 'px';
     },
 
     hideTooltip() {
@@ -1071,6 +1071,18 @@ function dashboardApp() {
     // ═══════════════════════════════════════════════════════════════════════
     // FORMATTERS
     // ═══════════════════════════════════════════════════════════════════════
+
+    fmtDate(dateStr) {
+      if (!dateStr) return '';
+      return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    },
+
+    topbarCompletionRate() {
+      const total = this.sessions.list.length;
+      if (!total) return 0;
+      const done = this.sessions.list.filter(s => s.status === 'completed').length;
+      return Math.round(done / total * 100);
+    },
 
     fmtDuration(ms) {
       if (!ms || ms <= 0) return '—';

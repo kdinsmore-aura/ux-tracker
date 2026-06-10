@@ -131,12 +131,14 @@ html, body {
 }
 
 .sidebar-brand {
-  padding: 16px 16px 14px;
+  height: var(--topbar-h);
+  box-sizing: border-box;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: var(--topbar-h);
+  flex-shrink: 0;
 }
 
 .sidebar-brand .dot {
@@ -170,6 +172,37 @@ html, body {
 .collapsed .nav-label {
   display: none;
 }
+
+.sidebar-back {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  transition: color 0.1s, background 0.1s;
+}
+
+.sidebar-back:hover { color: var(--text-2); background: var(--subtle); }
+
+.sidebar-back-icon {
+  width: 14px; height: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.collapsed .sidebar-back {
+  padding: 8px;
+  justify-content: center;
+  gap: 0;
+}
+
+.collapsed .sidebar-back-label { display: none; }
 
 .sidebar-nav {
   flex: 1;
@@ -252,22 +285,34 @@ html, body {
   flex-shrink: 0;
 }
 
+.topbar-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
 .topbar-study-name {
   font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 1;
   min-width: 0;
 }
 
-.topbar-actions {
+.topbar-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
   flex-shrink: 0;
 }
+
+.topbar-meta-sep { color: var(--border-2); }
 
 .screen-changes-banner {
   background: var(--warn-bg);
@@ -812,16 +857,18 @@ label {
   transition: transform 0.1s;
 }
 
-.timeline-dot:hover { transform: translate(-50%, -50%) scale(1.5); z-index: 2; }
-
-.timeline-dot.on-path    { background: var(--ok); }
-.timeline-dot.mis-click  { background: var(--danger); }
+/* colorblind-friendly: blue (circle) for on-path, orange (diamond) for mis-click */
+.timeline-dot.on-path    { background: #2563EB; }
+.timeline-dot.mis-click  { background: #EA580C; border-radius: 2px; transform: translate(-50%, -50%) rotate(45deg); }
 .timeline-dot.transition { background: var(--text-3); width: 6px; height: 6px; }
 
+.timeline-dot:hover                { z-index: 2; }
+.timeline-dot.on-path:hover        { transform: translate(-50%, -50%) scale(1.6); outline: 3px solid rgba(37,99,235,.45); outline-offset: 3px; }
+.timeline-dot.mis-click:hover      { transform: translate(-50%, -50%) rotate(45deg) scale(1.6); outline: 3px solid rgba(234,88,12,.45); outline-offset: 3px; }
+.timeline-dot.transition:hover     { transform: translate(-50%, -50%) scale(1.6); }
+
 .timeline-tooltip {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
+  position: fixed;
   transform: translateX(-50%);
   background: #1A1A30;
   color: #E2E8F0;
@@ -831,7 +878,7 @@ label {
   border-radius: var(--r);
   white-space: nowrap;
   pointer-events: none;
-  z-index: 10;
+  z-index: 100;
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
