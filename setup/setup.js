@@ -6,6 +6,7 @@ function setupApp() {
 
     // ── Navigation ────────────────────────────────────────────────────────────
     currentStep: 0,
+    _maxStep: 0,   // highest step reached for the current study
     studyId: null,
     study: null,
     _savedStep: null,
@@ -71,8 +72,9 @@ function setupApp() {
       if (raw) {
         try {
           const s = JSON.parse(raw);
-          if (s.studyId) this.studyId = s.studyId;
-          if (s.step)    this._savedStep = s.step;
+          if (s.studyId)  this.studyId  = s.studyId;
+          if (s.step)     this._savedStep = s.step;
+          if (s.maxStep)  this._maxStep = s.maxStep;
         } catch {}
       }
 
@@ -149,6 +151,7 @@ function setupApp() {
       this.studies = [];
       this.studyId = null;
       this.study = null;
+      this._maxStep = 0;
       this.currentStep = 0;
     },
 
@@ -166,9 +169,11 @@ function setupApp() {
 
     async _goto(step) {
       if (this._poll) { clearInterval(this._poll); this._poll = null; }
+      if (step > this._maxStep) this._maxStep = step;
       this.currentStep = step;
       sessionStorage.setItem('uxt_setup_state', JSON.stringify({
         step: this.currentStep,
+        maxStep: this._maxStep,
         studyId: this.studyId,
       }));
       if (step === 1) await this._loadStudies();
@@ -177,7 +182,7 @@ function setupApp() {
 
     stepClass(n) {
       if (n === this.currentStep) return 'is-active';
-      if (n < this.currentStep)   return 'is-done is-clickable';
+      if (n <= this._maxStep)     return 'is-done is-clickable';
       return '';
     },
 
@@ -186,7 +191,7 @@ function setupApp() {
     },
 
     canNav(n) {
-      return n < this.currentStep && n >= 1;
+      return n <= this._maxStep && n !== this.currentStep && n >= 2;
     },
 
 
@@ -249,8 +254,9 @@ function setupApp() {
       this.taskCounter = this.newStudy.tasks.length + 1;
       if (this.newStudy.tasks.length === 0) this._addTask();
       this.createError = '';
-      this.currentStep = 2;
-      sessionStorage.setItem('uxt_setup_state', JSON.stringify({ step: 2, studyId: this.studyId }));
+      // Unlock steps already completed for this study
+      this._maxStep = (study.ideal_path?.length > 0) ? 5 : 2;
+      this._goto(2);
     },
 
     generateMoreFor(study) {
@@ -286,9 +292,9 @@ function setupApp() {
       this.newStudy = { name: '', description: '', tasks: [] };
       this.taskCounter = 1;
       this.createError = '';
+      this._maxStep = 2;
       this._addTask();
-      this.currentStep = 2;
-      sessionStorage.setItem('uxt_setup_state', JSON.stringify({ step: 2, studyId: null }));
+      this._goto(2);
     },
 
     _addTask() {

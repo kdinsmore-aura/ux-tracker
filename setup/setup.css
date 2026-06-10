@@ -101,6 +101,132 @@ html, body {
 }
 
 
+/* ── Hub layout ─────────────────────────────────────────────────────────────── */
+
+.hub-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.hub-header {
+  height: 56px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.hub-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hub-brand .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.hub-brand-text h1 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  line-height: 1.2;
+}
+
+.hub-brand-text span {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.hub-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hub-content {
+  flex: 1;
+  padding: 40px 52px;
+  max-width: 920px;
+  width: 100%;
+}
+
+.hub-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.hub-section-head h2 {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.hub-section-head span {
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.hub-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 80px 24px;
+  color: var(--text-3);
+}
+
+.hub-empty-icon {
+  width: 48px; height: 48px;
+  margin-bottom: 20px;
+  color: var(--border-2);
+}
+
+.hub-empty h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.hub-empty p {
+  font-size: 14px;
+  margin-bottom: 24px;
+  max-width: 360px;
+}
+
+
+/* ── Wizard sidebar back link ────────────────────────────────────────────────── */
+
+.sidebar-back-link {
+  display: block;
+  padding: 8px 20px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+  transition: color 0.1s, background 0.1s;
+}
+
+.sidebar-back-link:hover { color: var(--text-2); background: var(--subtle); }
+
+
 /* ── App layout ─────────────────────────────────────────────────────────────── */
 
 .app-wrap {

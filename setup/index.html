@@ -65,27 +65,101 @@
   </div><!-- /creds-screen -->
 
 
-  <!-- ── Steps 1–5: App layout ───────────────────────────────────────────── -->
-  <div class="app-wrap" x-show="currentStep > 0" x-cloak>
+  <!-- ── Hub: Studies List ──────────────────────────────────────────────── -->
+  <div class="hub-shell" x-show="currentStep === 1" x-cloak>
+
+    <header class="hub-header">
+      <div class="hub-brand">
+        <div class="dot"></div>
+        <div class="hub-brand-text">
+          <h1>UX Tracker</h1>
+          <span>Research Hub</span>
+        </div>
+      </div>
+      <div class="hub-header-actions">
+        <button class="btn btn-ghost btn-sm" @click="clearCredentials()">Change credentials</button>
+        <button class="btn btn-primary" @click="startCreate()">+ New Study</button>
+      </div>
+    </header>
+
+    <div class="hub-content">
+
+      <div x-show="studiesError" class="msg msg-error" x-text="studiesError"></div>
+
+      <div class="loading-row" x-show="studiesLoading">
+        <div class="spinner"></div>
+        <span>Loading studies…</span>
+      </div>
+
+      <!-- Empty state -->
+      <div class="hub-empty" x-show="!studiesLoading && studies.length === 0">
+        <div class="hub-empty-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="6" y="10" width="36" height="28" rx="3"/><path d="M16 10V7M32 10V7M6 18h36"/></svg>
+        </div>
+        <h3>No studies yet</h3>
+        <p>Create your first study to start tracking user experience.</p>
+        <button class="btn btn-primary" @click="startCreate()">Create Your First Study</button>
+      </div>
+
+      <!-- Studies grid -->
+      <div x-show="!studiesLoading && studies.length > 0">
+        <div class="hub-section-head">
+          <h2>Studies</h2>
+          <span x-text="studies.length + (studies.length === 1 ? ' study' : ' studies')"></span>
+        </div>
+        <div class="studies-list">
+          <template x-for="s in studies" :key="s.id">
+            <div class="study-card">
+              <div class="study-info">
+                <div class="study-title-row">
+                  <span class="study-name" x-text="s.name"></span>
+                  <span class="badge" :class="'badge-' + s.status" x-text="s.status"></span>
+                  <span class="warn-icon" x-show="s.has_screen_changes" title="Screen changes detected since recording">!</span>
+                </div>
+                <div class="study-meta">
+                  <span x-text="'Created ' + fmtDate(s.created_at)"></span>
+                  <span x-text="pCount(s.id) + ' participant' + (pCount(s.id) !== 1 ? 's' : '')"></span>
+                  <span x-text="pRate(s.id) + ' completion'"></span>
+                </div>
+              </div>
+              <div class="study-actions">
+                <button class="btn btn-secondary btn-sm" @click="openDashboardFor(s.id)">Dashboard</button>
+                <button class="btn btn-secondary btn-sm" @click="editStudy(s)">Edit</button>
+                <button class="btn btn-secondary btn-sm" @click="generateMoreFor(s)">+ Links</button>
+                <button class="btn btn-danger-ghost btn-sm" @click="promptDelete(s.id)">Delete</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /hub-shell -->
+
+
+  <!-- ── Wizard: Steps 2–5 ──────────────────────────────────────────────── -->
+  <div class="app-wrap" x-show="currentStep > 1" x-cloak>
 
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-brand">
         <h2>UX Tracker</h2>
-        <small>Researcher Setup</small>
+        <small x-text="editMode ? 'Edit Study' : 'New Study'"></small>
       </div>
 
-      <nav class="sidebar-nav">
+      <a class="sidebar-back-link" href="#" @click.prevent="_goto(1)">
+        ← All Studies
+      </a>
 
-        <template x-for="n in [1,2,3,4,5]" :key="n">
+      <nav class="sidebar-nav">
+        <template x-for="n in [2,3,4,5]" :key="n">
           <div class="step-item"
                :class="stepClass(n)"
                @click="canNav(n) && _goto(n)">
-            <span class="step-num" x-text="stepNumDisplay(n)"></span>
-            <span x-text="['','Studies','Create Study','Record Path','Review Path','Generate Links'][n]"></span>
+            <span class="step-num" x-text="n < currentStep ? '✓' : [2,3,4,5].indexOf(n) + 1"></span>
+            <span x-text="['','','Create Study','Record Path','Review Path','Generate Links'][n]"></span>
           </div>
         </template>
-
       </nav>
 
       <div class="sidebar-foot">
@@ -97,76 +171,6 @@
     <!-- Main content -->
     <main class="main">
 
-
-      <!-- ── Step 1: Studies List ─────────────────────────────────────────── -->
-      <section x-show="currentStep === 1">
-        <div class="page-head">
-          <h2>Studies</h2>
-          <p>All studies in your Supabase project.</p>
-        </div>
-
-        <div x-show="studiesError" class="msg msg-error" x-text="studiesError"></div>
-
-        <div class="studies-top">
-          <span></span>
-          <button class="btn btn-primary" @click="startCreate()">+ Create New Study</button>
-        </div>
-
-        <!-- Loading -->
-        <div class="loading-row" x-show="studiesLoading">
-          <div class="spinner"></div>
-          <span>Loading studies…</span>
-        </div>
-
-        <!-- Empty -->
-        <div class="empty-state" x-show="!studiesLoading && studies.length === 0">
-          <h3>No studies yet</h3>
-          <p>Create your first study to get started.</p>
-          <button class="btn btn-primary" @click="startCreate()">Create Study</button>
-        </div>
-
-        <!-- Studies grid -->
-        <div class="studies-list" x-show="!studiesLoading && studies.length > 0">
-          <template x-for="s in studies" :key="s.id">
-            <div class="study-card">
-
-              <div class="study-info">
-                <div class="study-title-row">
-                  <span class="study-name" x-text="s.name"></span>
-                  <span class="badge"
-                        :class="'badge-' + s.status"
-                        x-text="s.status"></span>
-                  <span class="warn-icon"
-                        x-show="s.has_screen_changes"
-                        title="Screen changes detected since recording">!</span>
-                </div>
-                <div class="study-meta">
-                  <span x-text="'Created ' + fmtDate(s.created_at)"></span>
-                  <span x-text="pCount(s.id) + ' participant' + (pCount(s.id) !== 1 ? 's' : '')"></span>
-                  <span x-text="pRate(s.id) + ' completion'"></span>
-                </div>
-              </div>
-
-              <div class="study-actions">
-                <button class="btn btn-secondary btn-sm"
-                        @click="openDashboardFor(s.id)"
-                        title="Open dashboard">Dashboard</button>
-                <button class="btn btn-secondary btn-sm"
-                        @click="editStudy(s)"
-                        title="Edit study">Edit</button>
-                <button class="btn btn-secondary btn-sm"
-                        @click="generateMoreFor(s)"
-                        title="Generate more invite links">+ Links</button>
-                <button class="btn btn-danger-ghost btn-sm"
-                        @click="promptDelete(s.id)"
-                        title="Delete study">Delete</button>
-              </div>
-
-            </div>
-          </template>
-        </div>
-
-      </section><!-- /step 1 -->
 
 
       <!-- ── Step 2: Create / Edit Study ─────────────────────────────────── -->
