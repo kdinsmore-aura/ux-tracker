@@ -51,7 +51,8 @@ function setupApp() {
     generatedLinks: [],
     linksGenerating: false,
     linksError: '',
-    copiedSnippet: false,
+    copiedSnippetMinimal: false,
+    copiedSnippetFull: false,
     copiedUrls: false,
     copiedLinkId: null,
 
@@ -520,7 +521,22 @@ function setupApp() {
       setTimeout(() => { this.copiedLinkId = null; }, 1500);
     },
 
-    get scriptSnippet() {
+    get scriptSnippetMinimal() {
+      const supabaseUrl = (this.creds.url || '').trim() || 'SUPABASE_PROJECT_URL';
+      const supabaseKey = (this.creds.key || '').trim() || 'SUPABASE_ANON_KEY';
+      const base = this.githubUser
+        ? `https://${this.githubUser}.github.io/ux-tracker`
+        : 'https://YOUR_USERNAME.github.io/ux-tracker';
+      return [
+        `<script`,
+        `  src="${base}/v1/tracker.js"`,
+        `  data-supabase-url="${supabaseUrl}"`,
+        `  data-supabase-key="${supabaseKey}">`,
+        `<\/script>`,
+      ].join('\n');
+    },
+
+    get scriptSnippetFull() {
       const supabaseUrl = (this.creds.url || '').trim() || 'SUPABASE_PROJECT_URL';
       const supabaseKey = (this.creds.key || '').trim() || 'SUPABASE_ANON_KEY';
       const studyId     = this.studyId || 'STUDY_ID';
@@ -537,10 +553,16 @@ function setupApp() {
       ].join('\n');
     },
 
-    async copySnippet() {
-      await navigator.clipboard.writeText(this.scriptSnippet);
-      this.copiedSnippet = true;
-      setTimeout(() => { this.copiedSnippet = false; }, 2000);
+    async copySnippetMinimal() {
+      await navigator.clipboard.writeText(this.scriptSnippetMinimal);
+      this.copiedSnippetMinimal = true;
+      setTimeout(() => { this.copiedSnippetMinimal = false; }, 2000);
+    },
+
+    async copySnippetFull() {
+      await navigator.clipboard.writeText(this.scriptSnippetFull);
+      this.copiedSnippetFull = true;
+      setTimeout(() => { this.copiedSnippetFull = false; }, 2000);
     },
 
     openDashboard() {

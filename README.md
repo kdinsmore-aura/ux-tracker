@@ -15,7 +15,21 @@ UX Tracker is a lightweight, script-tag framework for running moderated usabilit
 
 ## Integration
 
-Add the following snippet to every prototype page, replacing the placeholder values:
+Add one of the following snippets to every prototype page:
+
+**MINIMAL** (recommended for most prototypes):
+
+```html
+<script
+  src="https://<your-github-user>.github.io/<repo>/v1/tracker.js"
+  data-supabase-url="https://xyz.supabase.co"
+  data-supabase-key="your-anon-key"
+></script>
+```
+
+The minimal version works because the Setup Tool and invite links pass the study ID as a `?study=` URL parameter automatically — no `data-study` attribute needed.
+
+**WITH HARDCODED STUDY** (optional, for single-study prototypes):
 
 ```html
 <script
@@ -25,6 +39,8 @@ Add the following snippet to every prototype page, replacing the placeholder val
   data-study="your-study-id"
 ></script>
 ```
+
+Use the hardcoded version only if you want the same study active on every page load regardless of URL params.
 
 The tracker starts in `idle` mode by default and activates only when the correct URL parameters are present (see Config reference below).
 
@@ -44,7 +60,7 @@ All fields can be set via `window.UXTracker = { ... }` (before the script tag) o
 |---|---|---|---|---|
 | `supabaseUrl` | string | — | `data-supabase-url` | Supabase project URL. **Required** when not idle. |
 | `supabaseKey` | string | — | `data-supabase-key` | Supabase anon key. **Required** when not idle. |
-| `studyId` | string | — | `data-study` | Study ID from the `studies` table. **Required** when not idle. |
+| `studyId` | string | — | `data-study` (optional) | Study ID from the `studies` table. Resolved from `window.UXTracker`, `data-study`, or `?study=` URL param. **Required** when not idle. |
 | `mode` | `'auto'`\|`'record'`\|`'participant'`\|`'idle'` | `'auto'` | `data-mode` | `'auto'` resolves from URL params: `?mode=record` → record; `?study=X&participant=Y` → participant; otherwise idle. |
 | `screenshotDelay` | number | `600` | `data-screenshot-delay` | Milliseconds to wait after a step trigger before capturing a screenshot. |
 | `screenshotFormat` | `'png'`\|`'jpeg'` | `'png'` | `data-screenshot-format` | Image format for captured screenshots. |

@@ -6,7 +6,8 @@
  * Resolution order (earlier source wins):
  *   1. window.UXTracker  — set by the researcher before the <script> tag
  *   2. data-* attributes on the <script> tag that loaded tracker.js
- *   3. Hard-coded defaults
+ *   3. ?study= URL parameter (studyId only)
+ *   4. Hard-coded defaults
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * CONFIG FIELDS
@@ -24,7 +25,7 @@
  *
  * @property {string} studyId
  *   The study identifier as stored in Supabase.
- *   Sources: window.UXTracker, data-study
+ *   Sources: window.UXTracker, data-study (optional), ?study= URL param
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * OPTIONAL FIELDS (defaults shown)
@@ -226,7 +227,8 @@ function validate(cfg) {
  * Resolution order (earlier source wins):
  *   1. window.UXTracker
  *   2. data-* attributes on the tracker <script> element
- *   3. Hard-coded defaults
+ *   3. ?study= URL parameter (studyId only)
+ *   4. Hard-coded defaults
  *
  * @returns {Readonly<Object>} Frozen configuration object
  */
@@ -238,6 +240,19 @@ export default function resolveConfig() {
   const scriptEl = findScriptElement();
   if (scriptEl) {
     Object.assign(merged, readDataAttributes(scriptEl));
+  }
+
+  // Layer 2.5 — URL param fallback for studyId (lower priority than data-study)
+  if (!merged.studyId) {
+    try {
+      const paramStudyId = new URLSearchParams(window.location.search).get('study');
+      if (paramStudyId) {
+        merged.studyId = paramStudyId;
+        console.debug('[UXTracker] studyId resolved from URL param');
+      }
+    } catch (_) {
+      // URLSearchParams unavailable.
+    }
   }
 
   // Layer 1 — window.UXTracker (highest priority, wins over everything)
