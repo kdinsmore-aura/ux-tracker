@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UX Tracker — Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+
+<div x-data="dashboardApp()" x-init="init()">
+
+  <!-- ── Auto-load spinner (shown while init() checks saved credentials) ────── -->
+  <div class="gate-screen" x-show="gateChecking" x-cloak>
+    <div style="text-align:center">
+      <div class="gate-brand" style="justify-content:center;margin-bottom:24px">
+        <div class="dot"></div>
+        <h1>UX Tracker</h1>
+      </div>
+      <div class="spinner spinner-lg" style="margin:0 auto 14px"></div>
+      <p style="color:var(--text-3);font-size:13px">Loading study…</p>
+    </div>
+  </div>
+
+  <!-- ── Gate: credentials + study ID (only when not auto-loading) ───────────── -->
+  <div class="gate-screen" x-show="!appReady && !gateChecking" x-cloak>
+    <div class="gate-card">
+      <div class="gate-brand">
+        <div class="dot"></div>
+        <h1>UX Tracker</h1>
+      </div>
+      <p class="gate-subtitle">Enter your Supabase credentials and study ID to view results.</p>
+
+      <div x-show="gateError" class="msg msg-error" x-text="gateError"></div>
+
+      <div class="form-group" x-show="!hasSavedCreds">
+        <label for="g-url">Supabase Project URL</label>
+        <input id="g-url" class="input mono" type="url"
+               placeholder="https://xxxxxxxxxxxx.supabase.co"
+               x-model="gateCreds.url">
+      </div>
+      <div class="form-group" x-show="!hasSavedCreds">
+        <label for="g-key">Supabase Anon Key</label>
+        <input id="g-key" class="input mono" type="text"
+               placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…"
+               x-model="gateCreds.key">
+      </div>
+
+      <div class="form-group">
+        <label for="g-study">Study ID</label>
+        <input id="g-study" class="input mono" type="text"
+               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+               x-model="gateStudyId"
+               @keydown.enter="gateLoad()">
+        <p class="hint" x-show="hasSavedCreds">Using saved credentials. <button class="btn btn-ghost btn-xs" @click="clearSavedCreds()">Change</button></p>
+      </div>
+
+      <div class="gate-actions">
+        <button class="btn btn-primary" @click="gateLoad()" :disabled="gateLoading">
+          <span x-show="!gateLoading">Load Dashboard</span>
+          <span x-show="gateLoading">Loading…</span>
+        </button>
+      </div>
+    </div>
+  </div><!-- /gate -->
+
+
+  <!-- ── App shell ──────────────────────────────────────────────────────────── -->
+  <div class="app-shell" x-show="appReady" x-cloak>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
+
+      <div class="sidebar-brand">
+        <div class="dot"></div>
+        <div class="sidebar-brand-text">
+          <h2>UX Tracker</h2>
+          <small>Dashboard</small>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <template x-for="s in navSections" :key="s.id">
+          <a class="nav-item" :class="{ active: activeSection === s.id }"
+             href="#" @click.prevent="goSection(s.id)">
+            <span class="nav-icon" x-html="s.icon"></span>
+            <span class="nav-label" x-text="s.label"></span>
+          </a>
+        </template>
+      </nav>
+
+      <button class="sidebar-collapse-btn" @click="sidebarCollapsed = !sidebarCollapsed">
+        <span x-show="!sidebarCollapsed">← Collapse</span>
+        <span x-show="sidebarCollapsed">→</span>
+      </button>
+    </aside><!-- /sidebar -->
+
+
+    <!-- Main area -->
+    <div class="main-area">
+
+      <!-- Top bar -->
+      <header class="topbar">
+        <span class="topbar-study-name" x-text="study?.name || 'Loading…'"></span>
+        <div class="topbar-actions">
+          <span class="badge" :class="'badge-' + (study?.status || 'draft')" x-text="study?.status || ''"></span>
+          <a class="btn btn-ghost btn-sm" href="../setup/" title="Back to Studies">← Studies</a>
+        </div>
+      </header>
+
+      <!-- Screen changes warning banner -->
+      <div class="screen-changes-banner" x-show="study?.has_screen_changes" x-cloak>
+        <span>⚠</span>
+        <span><strong>Page changes detected during this study.</strong> Some sessions may have run against a different version of the prototype.</span>
+        <button class="btn btn-sm btn-secondary" style="margin-left:auto"
+                @click="goSection('sessions'); sessionsFilter.screenChanges = 'changed'">
+          See affected sessions
+        </button>
+      </div>
+
+      <!-- Content scroll area -->
+      <div class="content-area" id="contentArea">
+
+
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <!-- SECTION 1 — OVERVIEW                                               -->
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <div class="section-panel" :class="{ active: activeSection === 'overview' }" id="sec-overview">
+
+          <div class="section-head">
+            <h2>Overview</h2>
+            <p x-text="study?.description || 'Study summary and key metrics.'"></p>
+          </div>
+
+          <!-- Loading skeleton -->
+          <template x-if="overview.loading">
+            <div>
+              <div class="stat-grid">
+                <template x-for="n in 6" :key="n">
+                  <div class="skeleton skeleton-card"></div>
+                </template>
+              </div>
+              <div class="skeleton skeleton-chart"></div>
+              <div class="skeleton skeleton-chart"></div>
+            </div>
+          </template>
+
+          <!-- Error -->
+          <div class="error-state" x-show="overview.error && !overview.loading">
+            <p x-text="overview.error"></p>
+            <button class="btn btn-secondary btn-sm" @click="loadOverview(true)">Retry</button>
+          </div>
+
+          <!-- Content -->
+          <template x-if="!overview.loading && !overview.error">
+            <div>
+              <!-- Stat cards -->
+              <div class="stat-grid">
+                <div class="stat-card">
+                  <div class="stat-value" x-text="overview.stats.totalInvited"></div>
+                  <div class="stat-label">Participants Invited</div>
+                </div>
+                <div class="stat-card ok">
+                  <div class="stat-value" x-text="overview.stats.completed"></div>
+                  <div class="stat-label">Sessions Completed</div>
+                </div>
+                <div class="stat-card warn">
+                  <div class="stat-value" x-text="overview.stats.notCompleted"></div>
+                  <div class="stat-label">Abandoned / In Progress</div>
+                </div>
+                <div class="stat-card highlight">
+                  <div class="stat-value" x-text="overview.stats.avgDuration"></div>
+                  <div class="stat-label">Avg Session Duration</div>
+                </div>
+                <div class="stat-card" :class="completionRateClass(overview.stats.completionRate)">
+                  <div class="stat-value" x-text="overview.stats.completionRate + '%'"></div>
+                  <div class="stat-label">Overall Completion Rate</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-value" x-text="overview.stats.avgSteps + ' / ' + (study?.ideal_path?.length || '—')"></div>
+                  <div class="stat-label">Avg Steps vs Ideal Path</div>
+                </div>
+              </div>
+
+              <!-- Task completion chart -->
+              <div class="charts-row">
+                <div class="chart-card">
+                  <div class="chart-title">Task Completion Rate by Task</div>
+                  <div class="chart-wrap">
+                    <canvas id="taskChart"></canvas>
+                  </div>
+                </div>
+                <div class="chart-card">
+                  <div class="chart-title">Session Duration Distribution</div>
+                  <div class="chart-wrap">
+                    <canvas id="durationChart"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+        </div><!-- /overview -->
+
+
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <!-- SECTION 2 — SESSIONS                                               -->
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <div class="section-panel" :class="{ active: activeSection === 'sessions' }" id="sec-sessions">
+
+          <div class="section-head">
+            <h2>Sessions</h2>
+            <p>All participant sessions for this study.</p>
+          </div>
+
+          <!-- Filters -->
+          <div class="filters-bar">
+            <div class="filter-group">
+              <span class="filter-label">Status:</span>
+              <select class="filter-select" x-model="sessionsFilter.status">
+                <option value="all">All</option>
+                <option value="completed">Completed</option>
+                <option value="abandoned">Abandoned</option>
+                <option value="in_progress">In Progress</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">Screen changes:</span>
+              <select class="filter-select" x-model="sessionsFilter.screenChanges">
+                <option value="all">All</option>
+                <option value="changed">Changed</option>
+                <option value="no_changes">No Changes</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">Duration:</span>
+              <select class="filter-select" x-model="sessionsFilter.duration">
+                <option value="all">All</option>
+                <option value="under2">Under 2 min</option>
+                <option value="2to5">2–5 min</option>
+                <option value="over5">Over 5 min</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Loading -->
+          <template x-if="sessions.loading">
+            <div>
+              <template x-for="n in 5" :key="n">
+                <div class="skeleton skeleton-table-row"></div>
+              </template>
+            </div>
+          </template>
+
+          <!-- Error -->
+          <div class="error-state" x-show="sessions.error && !sessions.loading">
+            <p x-text="sessions.error"></p>
+            <button class="btn btn-secondary btn-sm" @click="loadSessions(true)">Retry</button>
+          </div>
+
+          <!-- Table -->
+          <template x-if="!sessions.loading && !sessions.error">
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Participant</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Steps</th>
+                    <th>Mis-clicks</th>
+                    <th>Changes</th>
+                    <th>Started</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-if="filteredSessions.length === 0">
+                    <tr class="empty-rows"><td colspan="7">No sessions match the current filters.</td></tr>
+                  </template>
+                  <template x-for="s in filteredSessions" :key="s.id">
+                    <tr @click="openSessionDrawer(s)"
+                        :class="{ selected: drawerSession?.id === s.id }">
+                      <td class="cell-label" x-text="s.participant_label || s.participant_id?.slice(0,8) + '…'"></td>
+                      <td><span class="badge" :class="'badge-' + s.status" x-text="s.status.replace('_',' ')"></span></td>
+                      <td x-text="fmtDuration(s.duration_ms)"></td>
+                      <td x-text="(s.completed_steps || 0) + ' / ' + (s.total_steps || '—')"></td>
+                      <td x-text="s.mis_click_count ?? '—'"></td>
+                      <td>
+                        <span class="change-icon" x-show="s.has_screen_changes" title="Screen changes detected">!</span>
+                        <span x-show="!s.has_screen_changes" class="text-muted">—</span>
+                      </td>
+                      <td class="cell-mono" x-text="fmtDateTime(s.started_at)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </template>
+
+        </div><!-- /sessions -->
+
+
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <!-- SECTION 3 — HEATMAPS                                               -->
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <div class="section-panel" :class="{ active: activeSection === 'heatmaps' }" id="sec-heatmaps">
+
+          <div class="section-head">
+            <h2>Heatmaps</h2>
+            <p>Click distribution overlaid on each captured screen.</p>
+          </div>
+
+          <!-- Loading screens list -->
+          <template x-if="screens.loading">
+            <div class="loading-row"><div class="spinner"></div><span>Loading screens…</span></div>
+          </template>
+
+          <div class="error-state" x-show="screens.error && !screens.loading">
+            <p x-text="screens.error"></p>
+            <button class="btn btn-secondary btn-sm" @click="loadScreens(true)">Retry</button>
+          </div>
+
+          <template x-if="!screens.loading && !screens.error && screens.list.length === 0">
+            <div class="msg msg-info">No screens have been captured for this study yet.</div>
+          </template>
+
+          <template x-if="!screens.loading && !screens.error && screens.list.length > 0">
+            <div class="heatmap-layout">
+
+              <!-- Screen selector -->
+              <div class="screen-selector-panel">
+                <div class="screen-selector-title">Screens</div>
+                <template x-for="screen in screens.list" :key="screen.id">
+                  <div class="screen-thumb-item"
+                       :class="{ active: heatmap.selectedScreenId === screen.screen_id }"
+                       @click="selectHeatmapScreen(screen)">
+                    <img class="screen-thumb-img"
+                         :src="screen.screenshot_url"
+                         :alt="screen.label || screen.screen_id"
+                         loading="lazy">
+                    <span class="screen-thumb-label" x-text="screen.label || screen.screen_id"></span>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Heatmap main -->
+              <div class="heatmap-main">
+
+                <!-- Stale banner -->
+                <div class="stale-banner" x-show="heatmap.selectedScreen?.is_stale">
+                  ⚠ This screen was modified after recording. Sessions before
+                  <strong x-text="fmtDate(heatmap.selectedScreen?.change_detected_at)"></strong>
+                  may reflect a different page layout.
+                </div>
+
+                <!-- Controls -->
+                <div class="heatmap-controls">
+                  <div class="control-group">
+                    <span class="control-label">Clicks:</span>
+                    <div class="toggle-btn-group">
+                      <button class="toggle-btn" :class="{ active: heatmap.clickFilter === 'all' }"
+                              @click="setHeatmapFilter('clickFilter','all')">All</button>
+                      <button class="toggle-btn" :class="{ active: heatmap.clickFilter === 'on_path' }"
+                              @click="setHeatmapFilter('clickFilter','on_path')">On-path</button>
+                      <button class="toggle-btn" :class="{ active: heatmap.clickFilter === 'mis_click' }"
+                              @click="setHeatmapFilter('clickFilter','mis_click')">Mis-clicks</button>
+                    </div>
+                  </div>
+                  <div class="control-group">
+                    <span class="control-label">Sessions:</span>
+                    <div class="toggle-btn-group">
+                      <button class="toggle-btn" :class="{ active: heatmap.sessionFilter === 'all' }"
+                              @click="setHeatmapFilter('sessionFilter','all')">All</button>
+                      <button class="toggle-btn" :class="{ active: heatmap.sessionFilter === 'completed' }"
+                              @click="setHeatmapFilter('sessionFilter','completed')">Completed only</button>
+                    </div>
+                  </div>
+                  <div class="control-group">
+                    <span class="control-label">Opacity:</span>
+                    <input type="range" class="range-input" min="0.3" max="1" step="0.05"
+                           x-model="heatmap.opacity" @input="applyHeatmapConfig()">
+                  </div>
+                  <div class="control-group">
+                    <span class="control-label">Radius:</span>
+                    <input type="range" class="range-input" min="10" max="50" step="2"
+                           x-model="heatmap.radius" @input="applyHeatmapConfig()">
+                  </div>
+                </div>
+
+                <!-- Heatmap canvas -->
+                <div class="heatmap-container" id="heatmapContainer">
+                  <template x-if="!heatmap.selectedScreenId">
+                    <div class="heatmap-empty">Select a screen to view its heatmap.</div>
+                  </template>
+                  <template x-if="heatmap.selectedScreenId">
+                    <div>
+                      <img class="heatmap-screenshot" id="heatmapImg"
+                           :src="heatmap.selectedScreen?.screenshot_url"
+                           @load="onHeatmapImgLoad()"
+                           alt="Screen screenshot">
+                      <div class="heatmap-canvas-wrap" id="heatmapCanvasWrap"></div>
+                    </div>
+                  </template>
+                  <template x-if="heatmap.eventsLoading">
+                    <div class="heatmap-empty" style="position:absolute;inset:0;background:rgba(255,255,255,.7)">
+                      <div class="spinner spinner-lg"></div>
+                    </div>
+                  </template>
+                </div>
+
+              </div>
+            </div>
+          </template>
+
+        </div><!-- /heatmaps -->
+
+
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <!-- SECTION 4 — PATH ANALYSIS                                          -->
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <div class="section-panel" :class="{ active: activeSection === 'paths' }" id="sec-paths">
+
+          <div class="section-head">
+            <h2>Path Analysis</h2>
+            <p>Per-step completion rates, timing, and common mis-click targets.</p>
+          </div>
+
+          <template x-if="paths.loading">
+            <div>
+              <div class="skeleton skeleton-chart" style="height:300px"></div>
+            </div>
+          </template>
+
+          <div class="error-state" x-show="paths.error && !paths.loading">
+            <p x-text="paths.error"></p>
+            <button class="btn btn-secondary btn-sm" @click="loadPaths(true)">Retry</button>
+          </div>
+
+          <template x-if="!paths.loading && !paths.error">
+            <div>
+
+              <!-- Ideal path comparison table -->
+              <div class="path-table-wrap">
+                <div class="section-label">Ideal Path — Step Breakdown</div>
+                <div class="table-wrap">
+                  <table class="path-analysis-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Expected Element</th>
+                        <th>1st-Click Correct</th>
+                        <th>Eventually Completed</th>
+                        <th>Avg Time</th>
+                        <th>Avg Clicks</th>
+                        <th>Top Mis-clicks</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-if="paths.steps.length === 0">
+                        <tr class="empty-rows"><td colspan="7">No ideal path steps recorded yet.</td></tr>
+                      </template>
+                      <template x-for="step in paths.steps" :key="step.stepIndex">
+                        <tr>
+                          <td><strong x-text="step.stepIndex + 1"></strong></td>
+                          <td>
+                            <div x-text="step.elementText || '—'"></div>
+                            <div class="path-step-selector" x-text="step.elementSelector"></div>
+                          </td>
+                          <td>
+                            <div class="pct-bar">
+                              <div class="pct-track">
+                                <div class="pct-fill" :class="pctClass(step.firstClickPct)"
+                                     :style="'width:' + step.firstClickPct + '%'"></div>
+                              </div>
+                              <span class="pct-value" x-text="step.firstClickPct + '%'"></span>
+                            </div>
+                          </td>
+                          <td>
+                            <div class="pct-bar">
+                              <div class="pct-track">
+                                <div class="pct-fill" :class="pctClass(step.eventualPct)"
+                                     :style="'width:' + step.eventualPct + '%'"></div>
+                              </div>
+                              <span class="pct-value" x-text="step.eventualPct + '%'"></span>
+                            </div>
+                          </td>
+                          <td x-text="fmtMs(step.avgTimeMs)"></td>
+                          <td x-text="step.avgClicks.toFixed(1)"></td>
+                          <td>
+                            <div class="misclick-list">
+                              <template x-for="mc in step.topMisclicks" :key="mc">
+                                <span class="misclick-selector" x-text="mc"></span>
+                              </template>
+                              <span class="text-muted" x-show="step.topMisclicks.length === 0" style="font-size:11px">None</span>
+                            </div>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Flow diagram -->
+              <div class="flow-diagram">
+                <div class="flow-title">Participant Flow Through Ideal Path</div>
+                <div id="flowDiagramWrap"></div>
+              </div>
+
+            </div>
+          </template>
+
+        </div><!-- /paths -->
+
+
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <!-- SECTION 5 — PARTICIPANTS                                           -->
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <div class="section-panel" :class="{ active: activeSection === 'participants' }" id="sec-participants">
+
+          <div class="section-head">
+            <h2>Participants</h2>
+            <p>Manage participants and generate additional invite links.</p>
+          </div>
+
+          <div class="participants-head">
+            <span class="text-muted" style="font-size:13px"
+                  x-text="participants.list.length + ' participant' + (participants.list.length !== 1 ? 's' : '')"></span>
+            <button class="btn btn-primary btn-sm" @click="openLinksModal()">+ Generate More Links</button>
+          </div>
+
+          <template x-if="participants.loading">
+            <div>
+              <template x-for="n in 5" :key="n">
+                <div class="skeleton skeleton-table-row"></div>
+              </template>
+            </div>
+          </template>
+
+          <div class="error-state" x-show="participants.error && !participants.loading">
+            <p x-text="participants.error"></p>
+            <button class="btn btn-secondary btn-sm" @click="loadParticipants(true)">Retry</button>
+          </div>
+
+          <template x-if="!participants.loading && !participants.error">
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Label</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Completion</th>
+                    <th>Changes</th>
+                    <th>Invite URL</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-if="participants.list.length === 0">
+                    <tr class="empty-rows"><td colspan="7">No participants yet.</td></tr>
+                  </template>
+                  <template x-for="p in participants.list" :key="p.id">
+                    <tr>
+                      <td class="cell-label" x-text="p.label"></td>
+                      <td><span class="badge" :class="'badge-' + p.status" x-text="p.status"></span></td>
+                      <td x-text="fmtDuration(p._session?.duration_ms)"></td>
+                      <td>
+                        <span x-show="p._session">
+                          <span x-text="(p._session?.completed_steps || 0) + '/' + (p._session?.total_steps || '—')"></span>
+                        </span>
+                        <span x-show="!p._session" class="text-muted">—</span>
+                      </td>
+                      <td>
+                        <span class="change-icon" x-show="p._session?.has_screen_changes" title="Screen changes">!</span>
+                        <span x-show="!p._session?.has_screen_changes" class="text-muted">—</span>
+                      </td>
+                      <td>
+                        <span class="cell-url-short" x-text="p._inviteUrl"></span>
+                      </td>
+                      <td>
+                        <div class="btn-row" style="gap:4px">
+                          <button class="btn btn-ghost btn-xs"
+                                  @click.stop="copyUrl(p.id, p._inviteUrl)">
+                            <span x-show="copiedParticipantId !== p.id">Copy URL</span>
+                            <span class="copied-tip" x-show="copiedParticipantId === p.id">Copied!</span>
+                          </button>
+                          <button class="btn btn-ghost btn-xs"
+                                  x-show="p._session"
+                                  @click.stop="goSession(p._session?.id)">
+                            Session
+                          </button>
+                          <button class="btn btn-danger-ghost btn-xs"
+                                  x-show="p.status !== 'abandoned'"
+                                  @click.stop="promptAbandon(p)">
+                            Abandon
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </template>
+
+        </div><!-- /participants -->
+
+
+      </div><!-- /content-area -->
+    </div><!-- /main-area -->
+  </div><!-- /app-shell -->
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- SESSION DETAIL DRAWER                                                   -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="drawer-overlay" :class="{ open: drawerOpen }" @click="closeDrawer()"></div>
+  <div class="drawer" :class="{ open: drawerOpen }">
+    <div class="drawer-header">
+      <span class="drawer-title"
+            x-text="drawerSession ? 'Session — ' + (drawerSession.participant_label || drawerSession.participant_id?.slice(0,8)) : 'Session Detail'">
+      </span>
+      <button class="drawer-close" @click="closeDrawer()">✕</button>
+    </div>
+
+    <div class="drawer-body" x-show="drawerOpen">
+
+      <template x-if="drawerLoading">
+        <div class="loading-row"><div class="spinner"></div><span>Loading session events…</span></div>
+      </template>
+
+      <template x-if="!drawerLoading && drawerSession">
+        <div>
+
+          <!-- Meta -->
+          <div class="drawer-section">
+            <div class="drawer-section-title">Session Info</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+              <div><span class="text-muted">Status: </span>
+                <span class="badge" :class="'badge-' + drawerSession.status"
+                      x-text="drawerSession.status.replace('_',' ')"></span>
+              </div>
+              <div><span class="text-muted">Duration: </span>
+                <strong x-text="fmtDuration(drawerSession.duration_ms)"></strong></div>
+              <div><span class="text-muted">Viewport: </span>
+                <span x-text="(drawerSession.viewport_width || '?') + '×' + (drawerSession.viewport_height || '?')"></span>
+              </div>
+              <div><span class="text-muted">Started: </span>
+                <span x-text="fmtDateTime(drawerSession.started_at)"></span></div>
+            </div>
+            <div class="msg msg-warning" style="margin-top:10px;margin-bottom:0"
+                 x-show="drawerSession.resumed_without_state">
+              ⚠ Resumed without state — participant returned on a different device or cleared storage.
+            </div>
+          </div>
+
+          <!-- Timeline -->
+          <div class="drawer-section">
+            <div class="drawer-section-title">Event Timeline</div>
+            <div class="timeline-track" x-ref="timelineTrack">
+              <div class="timeline-track-line"></div>
+              <template x-for="(ev, i) in drawerEvents" :key="ev.id">
+                <div class="timeline-dot"
+                     :class="timelineDotClass(ev)"
+                     :style="'left:' + timelinePct(ev) + '%'"
+                     @mouseenter="showTooltip($event, ev)"
+                     @mouseleave="hideTooltip()">
+                </div>
+              </template>
+            </div>
+            <div class="timeline-legend">
+              <div class="timeline-legend-item">
+                <div class="timeline-legend-dot" style="background:var(--ok)"></div>
+                On-path click
+              </div>
+              <div class="timeline-legend-item">
+                <div class="timeline-legend-dot" style="background:var(--danger)"></div>
+                Mis-click
+              </div>
+              <div class="timeline-legend-item">
+                <div class="timeline-legend-dot" style="background:var(--text-3)"></div>
+                Screen transition
+              </div>
+            </div>
+          </div>
+
+          <!-- Step breakdown -->
+          <div class="drawer-section">
+            <div class="drawer-section-title">Step-by-Step Breakdown</div>
+            <div class="step-breakdown">
+              <template x-for="step in drawerStepBreakdown" :key="step.stepIndex">
+                <div class="step-row">
+                  <div class="step-row-num" :class="step.completed ? 'done' : 'missed'"
+                       x-text="step.stepIndex + 1"></div>
+                  <div class="step-row-info">
+                    <div x-text="step.elementText || step.elementSelector"></div>
+                    <div class="step-row-selector" x-text="step.elementSelector"></div>
+                    <div class="step-row-meta">
+                      <span x-show="step.completed">
+                        <span x-text="fmtMs(step.timeMs)"></span>
+                      </span>
+                      <span x-show="step.attempts > 0">
+                        <span x-text="step.attempts + ' attempt' + (step.attempts !== 1 ? 's' : '')"></span>
+                      </span>
+                      <span x-show="!step.completed" class="text-danger">Not completed</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div class="msg msg-info" x-show="drawerStepBreakdown.length === 0"
+                   style="margin-bottom:0">No step data available for this session.</div>
+            </div>
+          </div>
+
+          <!-- Screen changes -->
+          <div class="drawer-section" x-show="drawerSession.has_screen_changes && drawerSession.screen_changes?.length > 0">
+            <div class="drawer-section-title">Screen Changes Encountered</div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <template x-for="(ch, i) in (drawerSession.screen_changes || [])" :key="i">
+                <div class="msg msg-warning" style="font-size:12px;margin-bottom:0">
+                  Screen <code x-text="ch.screenId"></code> changed at
+                  <strong x-text="fmtDateTime(ch.detectedAt)"></strong>
+                </div>
+              </template>
+            </div>
+          </div>
+
+        </div>
+      </template>
+
+    </div>
+  </div><!-- /drawer -->
+
+  <!-- Tooltip (portal) -->
+  <div id="timelineTooltip" class="timeline-tooltip" style="display:none;position:fixed"></div>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- GENERATE LINKS MODAL                                                    -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" x-show="linksModal.open" x-cloak @click.self="linksModal.open = false">
+    <div class="modal">
+      <div class="modal-title">Generate More Participant Links</div>
+
+      <div x-show="linksModal.error" class="msg msg-error" x-text="linksModal.error"></div>
+
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px">
+        <div class="form-group" style="margin-bottom:0;flex:0 0 auto">
+          <label>Number of links</label>
+          <input class="input" type="number" min="1" max="100"
+                 x-model="linksModal.count" style="width:90px">
+        </div>
+        <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px">
+          <label>Prototype Base URL</label>
+          <input class="input mono" type="url"
+                 placeholder="https://your-prototype.com/"
+                 x-model="linksModal.baseUrl">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Participant labels (optional)</label>
+        <textarea class="input mono" rows="3"
+                  placeholder="One label per line…"
+                  x-model="linksModal.labels"></textarea>
+      </div>
+
+      <div class="btn-row" style="margin-bottom:16px">
+        <button class="btn btn-primary" @click="generateLinks()" :disabled="linksModal.generating">
+          <span x-show="!linksModal.generating">Generate</span>
+          <span x-show="linksModal.generating">Generating…</span>
+        </button>
+        <button class="btn btn-secondary" @click="linksModal.open = false">Cancel</button>
+      </div>
+
+      <template x-if="linksModal.generated.length > 0">
+        <div>
+          <div class="divider" style="margin:12px 0"></div>
+          <div class="btn-row" style="margin-bottom:8px">
+            <button class="btn btn-secondary btn-sm" @click="downloadLinksCSV()">Download CSV</button>
+            <button class="btn btn-secondary btn-sm" @click="copyAllLinks()">
+              <span x-show="!linksModal.copiedAll">Copy All URLs</span>
+              <span class="copied-tip" x-show="linksModal.copiedAll">Copied!</span>
+            </button>
+          </div>
+          <div class="table-wrap" style="max-height:240px;overflow-y:auto">
+            <table class="data-table" style="font-size:12px">
+              <thead><tr><th>Label</th><th>URL</th><th></th></tr></thead>
+              <tbody>
+                <template x-for="lnk in linksModal.generated" :key="lnk.id">
+                  <tr>
+                    <td class="cell-label" x-text="lnk.label"></td>
+                    <td class="cell-mono" x-text="lnk.url" style="word-break:break-all;font-size:10px"></td>
+                    <td>
+                      <button class="btn btn-ghost btn-xs" @click="copyLinkUrl(lnk.id, lnk.url)">
+                        <span x-show="copiedLinkId !== lnk.id">Copy</span>
+                        <span class="copied-tip" x-show="copiedLinkId === lnk.id">Copied!</span>
+                      </button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </div><!-- /links modal -->
+
+
+  <!-- ── Abandon confirm ─────────────────────────────────────────────────────── -->
+  <div class="confirm-overlay" x-show="abandonTarget !== null" x-cloak @click.self="abandonTarget = null">
+    <div class="confirm-dialog">
+      <h3>Mark as abandoned?</h3>
+      <p>This will set <strong x-text="abandonTarget?.label"></strong>'s status to abandoned. This cannot be undone.</p>
+      <div class="btn-row">
+        <button class="btn btn-danger-ghost" @click="confirmAbandon()">Yes, mark abandoned</button>
+        <button class="btn btn-secondary" @click="abandonTarget = null">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /x-data -->
+
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/heatmap.js@2.0.5/build/heatmap.min.js"></script>
+<script src="dashboard.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+</body>
+</html>

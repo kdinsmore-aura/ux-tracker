@@ -215,27 +215,31 @@ ALTER TABLE events        ENABLE ROW LEVEL SECURITY;
 
 
 -- ---- studies -----------------------------------------------
--- Anyone who knows the study ID can read it; write requires auth.
+-- Anyone who knows the study ID can read it; anon and authenticated can write.
+
+GRANT INSERT, UPDATE, DELETE ON studies TO anon;
 
 CREATE POLICY "studies_select"
   ON studies FOR SELECT
   TO anon, authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "studies_insert" ON studies;
 CREATE POLICY "studies_insert"
   ON studies FOR INSERT
-  TO authenticated
+  TO anon, authenticated
   WITH CHECK (true);
 
+DROP POLICY IF EXISTS "studies_update" ON studies;
 CREATE POLICY "studies_update"
   ON studies FOR UPDATE
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+  TO anon, authenticated
+  USING (true);
 
+DROP POLICY IF EXISTS "studies_delete" ON studies;
 CREATE POLICY "studies_delete"
   ON studies FOR DELETE
-  TO authenticated
+  TO anon, authenticated
   USING (true);
 
 
