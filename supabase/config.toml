@@ -1,0 +1,7 @@
+# Supabase project configuration
+# See: https://supabase.com/docs/guides/functions/deploy
+
+[functions.ux-tracker-ingest]
+# This function is called from public prototype pages (no user auth).
+# It does its own input validation — JWT verification is not needed.
+verify_jwt = false
