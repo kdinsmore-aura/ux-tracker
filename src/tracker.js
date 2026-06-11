@@ -1,5 +1,10 @@
 import resolveConfig, { CONFIG_VERSION } from './utils/config.js';
-import { initSupabaseClient, fetchStudy, batchInsertEvents } from './utils/supabase-client.js';
+import {
+  initSupabaseClient,
+  initIngestTransport,
+  fetchStudy,
+  batchInsertEvents,
+} from './utils/supabase-client.js';
 import { captureClickCoordinates } from './utils/coordinates.js';
 import { computeScreenId } from './utils/screen-id.js';
 import { computePageFingerprint } from './utils/fingerprint.js';
@@ -225,8 +230,6 @@ function _syncXhrPost(url, body) {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url, false); // false = synchronous
     xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.setRequestHeader('apikey', _config.supabaseKey);
-    xhr.setRequestHeader('Authorization', `Bearer ${_config.supabaseKey}`);
     xhr.send(body);
   } catch {
     // Nothing we can do during page teardown.
@@ -235,19 +238,20 @@ function _syncXhrPost(url, body) {
 
 function _handleUnload() {
   if (!_config || _eventBuffer.length === 0) return;
+  if (!_config.ingestUrl) return;
 
-  const body = JSON.stringify(_eventBuffer);
-  const restUrl = `${_config.supabaseUrl}/rest/v1/events`;
+  const body = JSON.stringify({
+    action: 'batchInsertEvents',
+    payload: { events: _eventBuffer },
+  });
+  const url = _config.ingestUrl;
 
   if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-    // sendBeacon cannot set custom headers, so we pass the anon key as a query
-    // parameter — Supabase PostgREST accepts apikey via query string.
-    const beaconUrl = `${restUrl}?apikey=${encodeURIComponent(_config.supabaseKey)}`;
     const blob = new Blob([body], { type: 'application/json' });
-    const queued = navigator.sendBeacon(beaconUrl, blob);
-    if (!queued) _syncXhrPost(restUrl, body);
+    const queued = navigator.sendBeacon(url, blob);
+    if (!queued) _syncXhrPost(url, body);
   } else {
-    _syncXhrPost(restUrl, body);
+    _syncXhrPost(url, body);
   }
 
   _eventBuffer = [];
@@ -261,8 +265,19 @@ async function _boot() {
   // Step 2: idle mode — exit without touching Supabase or the DOM.
   if (_config.mode === 'idle') return;
 
-  // Step 3: initialize the Supabase client (throws if URL/key are missing).
-  initSupabaseClient(_config);
+  // Step 3: initialize transports.
+  // ingestUrl — required for all DB operations on prototype pages.
+  // supabaseUrl + supabaseKey — optional; only needed for screenshot uploads (record mode).
+  if (_config.ingestUrl) {
+    initIngestTransport(_config.ingestUrl);
+  }
+  if (_config.supabaseUrl && _config.supabaseKey) {
+    initSupabaseClient(_config);
+  }
+  if (!_config.ingestUrl && !(_config.supabaseUrl && _config.supabaseKey)) {
+    console.error('[UXTracker] Neither ingestUrl nor supabase credentials are configured.');
+    return;
+  }
 
   // Step 4: load the study record.
   let study;

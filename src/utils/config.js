@@ -15,13 +15,12 @@
  *
  * REQUIRED FIELDS (no default; must come from window.UXTracker or data-attribute)
  *
- * @property {string} supabaseUrl
- *   The Supabase project URL (e.g. "https://xyz.supabase.co").
- *   Sources: window.UXTracker, data-supabase-url
- *
- * @property {string} supabaseKey
- *   The Supabase anon/public API key.
- *   Sources: window.UXTracker, data-supabase-key
+ * @property {string} ingestUrl
+ *   URL of the Supabase Edge Function that handles all tracker DB operations.
+ *   (e.g. "https://xyz.supabase.co/functions/v1/ux-tracker-ingest")
+ *   Required when mode is 'participant' or 'record'. Replaces direct Supabase
+ *   access on prototype pages — the anon key is no longer needed there.
+ *   Sources: window.UXTracker, data-ingest-url
  *
  * @property {string} studyId
  *   The study identifier as stored in Supabase.
@@ -30,6 +29,18 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * OPTIONAL FIELDS (defaults shown)
  * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * @property {string} [supabaseUrl]
+ *   The Supabase project URL (e.g. "https://xyz.supabase.co").
+ *   No longer required on prototype pages when ingestUrl is set. Still used by
+ *   the recorder for screenshot uploads (Storage access).
+ *   Sources: window.UXTracker, data-supabase-url
+ *
+ * @property {string} [supabaseKey]
+ *   The Supabase anon/public API key.
+ *   No longer required on prototype pages when ingestUrl is set. Still used by
+ *   the recorder for screenshot uploads (Storage access).
+ *   Sources: window.UXTracker, data-supabase-key
  *
  * @property {'auto'|'record'|'participant'|'idle'} [mode='auto']
  *   Operating mode.
@@ -115,11 +126,13 @@ function findScriptElement() {
     return document.currentScript;
   }
 
-  // Deferred / async — scan all scripts that carry a study attribute.
-  // Use the last matching element in document order (most likely the one
-  // the researcher added at the bottom of <body>).
-  const candidates = document.querySelectorAll('script[data-study]');
-  return candidates.length > 0 ? candidates[candidates.length - 1] : null;
+  // Deferred / async — prefer the new ingest-url format, fall back to legacy
+  // supabase-url. Use the last matching element in document order.
+  const byIngest = document.querySelectorAll('script[data-ingest-url]');
+  if (byIngest.length > 0) return byIngest[byIngest.length - 1];
+
+  const bySupabase = document.querySelectorAll('script[data-supabase-url]');
+  return bySupabase.length > 0 ? bySupabase[bySupabase.length - 1] : null;
 }
 
 /**
@@ -133,6 +146,7 @@ function readDataAttributes(el) {
   const partial = {};
   const d = el.dataset;
 
+  if (d.ingestUrl !== undefined) partial.ingestUrl = d.ingestUrl;
   if (d.supabaseUrl !== undefined) partial.supabaseUrl = d.supabaseUrl;
   if (d.supabaseKey !== undefined) partial.supabaseKey = d.supabaseKey;
   if (d.study !== undefined) partial.studyId = d.study;
@@ -193,11 +207,8 @@ function validate(cfg) {
   }
 
   if (effectiveMode !== 'idle') {
-    if (!cfg.supabaseUrl) {
-      console.error('[UXTracker] Missing required config field: supabaseUrl');
-    }
-    if (!cfg.supabaseKey) {
-      console.error('[UXTracker] Missing required config field: supabaseKey');
+    if (!cfg.ingestUrl) {
+      console.error('UXTracker: ingestUrl is required');
     }
     if (!cfg.studyId) {
       console.error('[UXTracker] Missing required config field: studyId');

@@ -2,10 +2,9 @@ import html2canvas from 'html2canvas';
 import { computePageFingerprint } from './utils/fingerprint.js';
 import { computeScreenId } from './utils/screen-id.js';
 import {
-  getClient,
   upsertScreen,
   uploadScreenshot,
-  STUDIES,
+  updateStudyIdealPath,
 } from './utils/supabase-client.js';
 import { startClickCapture, stopClickCapture } from './tracker.js';
 
@@ -336,15 +335,7 @@ class UxtRecorderPanel extends HTMLElement {
     _state.isRecording = false;
 
     try {
-      const { error } = await getClient()
-        .from(STUDIES)
-        .update({
-          ideal_path: _state.idealPath,
-          status: 'active',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', _state.studyId);
-      if (error) throw error;
+      await updateStudyIdealPath(_state.studyId, _state.idealPath, 'active');
     } catch (err) {
       console.error('[UXTracker Recorder] Failed to save ideal path:', err);
     }

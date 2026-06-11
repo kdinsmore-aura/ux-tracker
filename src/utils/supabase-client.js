@@ -10,7 +10,7 @@ export const EVENTS       = 'events';
 
 export const SCREENSHOT_BUCKET = 'ux-tracker-screenshots';
 
-// ─── Client lifecycle ────────────────────────────────────────────────────────
+// ─── Direct Supabase client (dashboard, setup, screenshot uploads) ────────────
 
 let _client = null;
 let _debug  = false;
@@ -42,71 +42,82 @@ export function getClient() {
   return _client;
 }
 
-// ─── Study operations ────────────────────────────────────────────────────────
+// ─── Ingest transport (prototype pages: participant + recorder DB ops) ────────
+
+let _ingestUrl = null;
+
+/**
+ * Initialise the ingest transport. Must be called before any ingest-based
+ * function. Throws if ingestUrl is not a valid URL string.
+ */
+export function initIngestTransport(ingestUrl) {
+  try {
+    new URL(ingestUrl);
+  } catch {
+    throw new Error('UXTracker [initIngestTransport]: ingestUrl must be a valid URL string');
+  }
+  _ingestUrl = ingestUrl;
+}
+
+/**
+ * POST an action + payload to the ingest Edge Function.
+ * Returns response.data on success; throws on network error or success: false.
+ */
+export async function ingest(action, payload) {
+  if (!_ingestUrl) {
+    throw new Error(
+      'UXTracker [ingest]: transport not initialized — call initIngestTransport first'
+    );
+  }
+  let response;
+  try {
+    const res = await fetch(_ingestUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload }),
+    });
+    response = await res.json();
+  } catch (err) {
+    throw new Error(`UXTracker ingest [${action}]: ${err?.message ?? String(err)}`);
+  }
+  if (!response.success) {
+    throw new Error(`UXTracker ingest [${action}]: ${response.error ?? 'unknown error'}`);
+  }
+  return response.data;
+}
+
+// ─── Study operations (ingest) ───────────────────────────────────────────────
 
 export async function fetchStudy(studyId) {
-  const { data, error } = await getClient()
-    .from(STUDIES)
-    .select('*')
-    .eq('id', studyId)
-    .maybeSingle();
-  if (error) _wrap('fetchStudy', error);
-  return data;
+  return ingest('fetchStudy', { studyId });
 }
 
 export async function updateStudyScreenChangesFlag(studyId) {
-  const { error } = await getClient()
-    .from(STUDIES)
-    .update({ has_screen_changes: true, updated_at: new Date().toISOString() })
-    .eq('id', studyId);
-  if (error) _wrap('updateStudyScreenChangesFlag', error);
+  return ingest('updateStudyScreenChangesFlag', { studyId });
 }
 
-// ─── Screen operations ───────────────────────────────────────────────────────
+export async function updateStudyIdealPath(studyId, idealPath, status) {
+  return ingest('updateStudyIdealPath', { studyId, idealPath, status });
+}
+
+// ─── Screen operations (ingest) ──────────────────────────────────────────────
 
 export async function fetchScreensForStudy(studyId) {
-  const { data, error } = await getClient()
-    .from(SCREENS)
-    .select('*')
-    .eq('study_id', studyId);
-  if (error) _wrap('fetchScreensForStudy', error);
-  return data;
+  return ingest('fetchScreensForStudy', { studyId });
 }
 
 export async function upsertScreen(screenData) {
-  const { data, error } = await getClient()
-    .from(SCREENS)
-    .upsert(screenData, { onConflict: 'study_id,screen_id' })
-    .select()
-    .single();
-  if (error) _wrap('upsertScreen', error);
-  return data;
+  return ingest('upsertScreen', { screenData });
 }
 
-export async function markScreenStale(screenId, sessionId) {
-  const { error } = await getClient()
-    .from(SCREENS)
-    .update({
-      is_stale:               true,
-      change_detected_at:     new Date().toISOString(),
-      first_stale_session_id: sessionId,
-    })
-    .eq('id', screenId)
-    .eq('is_stale', false);
-  if (error) _wrap('markScreenStale', error);
+export async function markScreenStale(screenId, sessionId, observedHash, studyId) {
+  return ingest('markScreenStale', { screenId, sessionId, observedHash, studyId });
 }
 
 // ─── Participant operations ──────────────────────────────────────────────────
 
 export async function fetchParticipant(participantId, studyId) {
-  const { data, error } = await getClient()
-    .from(PARTICIPANTS)
-    .select('*')
-    .eq('id', participantId)
-    .eq('study_id', studyId)
-    .maybeSingle();
-  if (error) _wrap('fetchParticipant', error);
-  return data;
+  return ingest('fetchParticipant', { participantId, studyId });
 }
 
 export async function bulkCreateParticipants(participantRows) {
@@ -119,31 +130,21 @@ export async function bulkCreateParticipants(participantRows) {
 }
 
 export async function updateParticipantStatus(participantId, status, extra = {}) {
-  const { error } = await getClient()
-    .from(PARTICIPANTS)
-    .update({ status, ...extra })
-    .eq('id', participantId);
-  if (error) _wrap('updateParticipantStatus', error);
+  return ingest('updateParticipantStatus', { participantId, status, extra });
 }
 
 // ─── Session operations ──────────────────────────────────────────────────────
 
 export async function createSession(sessionData) {
-  const { data, error } = await getClient()
-    .from(SESSIONS)
-    .insert(sessionData)
-    .select()
-    .single();
-  if (error) _wrap('createSession', error);
-  return data;
+  return ingest('createSession', { sessionData });
 }
 
-export async function updateSession(sessionId, updates) {
-  const { error } = await getClient()
-    .from(SESSIONS)
-    .update(updates)
-    .eq('id', sessionId);
-  if (error) _wrap('updateSession', error);
+/**
+ * Update a session record via the ingest Edge Function.
+ * participantId is required for server-side ownership validation.
+ */
+export async function updateSession(sessionId, participantId, updates) {
+  return ingest('updateSession', { sessionId, participantId, updates });
 }
 
 export async function fetchSessionsForStudy(studyId) {
@@ -153,7 +154,6 @@ export async function fetchSessionsForStudy(studyId) {
     .eq('study_id', studyId)
     .order('started_at', { ascending: false });
   if (error) _wrap('fetchSessionsForStudy', error);
-  // Flatten participant_label to match the expected shape
   return data.map(({ participants, ...row }) => ({
     ...row,
     participant_label: participants?.label ?? null,
@@ -163,22 +163,11 @@ export async function fetchSessionsForStudy(studyId) {
 // ─── Event operations ────────────────────────────────────────────────────────
 
 export async function insertEvent(eventData) {
-  const { data, error } = await getClient()
-    .from(EVENTS)
-    .insert(eventData)
-    .select()
-    .single();
-  if (error) _wrap('insertEvent', error);
-  return data;
+  return ingest('batchInsertEvents', { events: [eventData] });
 }
 
 export async function batchInsertEvents(eventRows) {
-  const { data, error } = await getClient()
-    .from(EVENTS)
-    .insert(eventRows)
-    .select();
-  if (error) _wrap('batchInsertEvents', error);
-  return data;
+  return ingest('batchInsertEvents', { events: eventRows });
 }
 
 export async function fetchEventsForSession(sessionId) {
@@ -214,7 +203,7 @@ export async function fetchEventsForScreen(studyId, screenId) {
   return data;
 }
 
-// ─── Storage operations ──────────────────────────────────────────────────────
+// ─── Storage operations (direct — recorder runs on a trusted machine) ─────────
 
 export async function uploadScreenshot(studyId, screenId, blob) {
   const path = `${studyId}/${screenId}.png`;

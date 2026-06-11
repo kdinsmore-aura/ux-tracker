@@ -174,12 +174,12 @@ async function _runScreenChangeDetection(sessionId, screenIdOverride) {
   _screenChanges = [..._screenChanges, entry];
   _saveState();
 
-  updateSession(sessionId, {
+  updateSession(sessionId, _participantId, {
     screen_changes:    _screenChanges,
     has_screen_changes: true,
   }).catch(() => {});
 
-  markScreenStale(screenRecord.id, sessionId).catch(() => {});
+  markScreenStale(screenRecord.id, sessionId, result.observedHash, _config.studyId).catch(() => {});
   updateStudyScreenChangesFlag(_config.studyId).catch(() => {});
 
   if (_panel) _panel.flashStaleChange();
@@ -234,7 +234,7 @@ function _handleClick(clickData) {
   _completedSteps++;
   _saveState();
 
-  updateSession(_sessionId, {
+  updateSession(_sessionId, _participantId, {
     current_step_index: _currentStepIndex,
     completed_steps:    _completedSteps,
   }).catch(() => {});
@@ -322,7 +322,7 @@ async function _completeSession() {
   await updateParticipantStatus(_participantId, 'completed', { completed_at: completedAt })
     .catch((err) => console.error('[UXTracker Participant] updateParticipantStatus error:', err));
 
-  await updateSession(_sessionId, {
+  await updateSession(_sessionId, _participantId, {
     status:          'completed',
     completed_at:    completedAt,
     completed_steps: _completedSteps,
@@ -568,7 +568,7 @@ export default async function initParticipant(config, study) {
 
     setEventBuffer(existingState.eventBuffer ?? []);
 
-    updateSession(_sessionId, {
+    updateSession(_sessionId, _participantId, {
       current_step_index: _currentStepIndex,
       completed_steps:    _completedSteps,
     }).catch((err) => console.error('[UXTracker Participant] updateSession (resume) error:', err));
@@ -576,7 +576,7 @@ export default async function initParticipant(config, study) {
   } else {
     // 6. New session (or expired)
     if (expired && existingState?.sessionId) {
-      updateSession(existingState.sessionId, { status: 'abandoned' })
+      updateSession(existingState.sessionId, _participantId, { status: 'abandoned' })
         .catch(() => {});
     }
 

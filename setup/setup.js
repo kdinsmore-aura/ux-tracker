@@ -521,33 +521,38 @@ function setupApp() {
       setTimeout(() => { this.copiedLinkId = null; }, 1500);
     },
 
+    _edgeFunctionUrl() {
+      const rawUrl = (this.creds.url || '').trim();
+      if (!rawUrl) return '{EDGE_FUNCTION_URL}';
+      try {
+        const ref = new URL(rawUrl).hostname.split('.')[0];
+        return `https://${ref}.supabase.co/functions/v1/ux-tracker-ingest`;
+      } catch {
+        return '{EDGE_FUNCTION_URL}';
+      }
+    },
+
     get scriptSnippetMinimal() {
-      const supabaseUrl = (this.creds.url || '').trim() || 'SUPABASE_PROJECT_URL';
-      const supabaseKey = (this.creds.key || '').trim() || 'SUPABASE_ANON_KEY';
       const base = this.githubUser
         ? `https://${this.githubUser}.github.io/ux-tracker`
         : 'https://YOUR_USERNAME.github.io/ux-tracker';
       return [
         `<script`,
         `  src="${base}/v1/tracker.js"`,
-        `  data-supabase-url="${supabaseUrl}"`,
-        `  data-supabase-key="${supabaseKey}">`,
+        `  data-ingest-url="${this._edgeFunctionUrl()}">`,
         `<\/script>`,
       ].join('\n');
     },
 
     get scriptSnippetFull() {
-      const supabaseUrl = (this.creds.url || '').trim() || 'SUPABASE_PROJECT_URL';
-      const supabaseKey = (this.creds.key || '').trim() || 'SUPABASE_ANON_KEY';
-      const studyId     = this.studyId || 'STUDY_ID';
+      const studyId = this.studyId || 'STUDY_ID';
       const base = this.githubUser
         ? `https://${this.githubUser}.github.io/ux-tracker`
         : 'https://YOUR_USERNAME.github.io/ux-tracker';
       return [
         `<script`,
         `  src="${base}/v1/tracker.js"`,
-        `  data-supabase-url="${supabaseUrl}"`,
-        `  data-supabase-key="${supabaseKey}"`,
+        `  data-ingest-url="${this._edgeFunctionUrl()}"`,
         `  data-study="${studyId}">`,
         `<\/script>`,
       ].join('\n');
