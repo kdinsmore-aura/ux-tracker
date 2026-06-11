@@ -259,11 +259,33 @@ function _handleUnload() {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
+// Show a visible error badge in record mode so misconfiguration is obvious.
+function _recordError(msg) {
+  console.error('[UXTracker]', msg);
+  const show = () => {
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed', 'bottom:24px', 'right:24px', 'z-index:999999',
+      'background:#f38ba8', 'color:#1e1e2e',
+      'font:600 12px/1.5 system-ui,sans-serif',
+      'padding:10px 16px', 'border-radius:10px',
+      'box-shadow:0 4px 20px rgba(0,0,0,.45)',
+      'max-width:300px', 'white-space:pre-wrap',
+    ].join(';');
+    el.textContent = `UX Tracker — Recording Error\n${msg}`;
+    document.body.appendChild(el);
+  };
+  if (document.body) show();
+  else window.addEventListener('DOMContentLoaded', show);
+}
+
 async function _boot() {
   _config = resolveConfig();
 
   // Step 2: idle mode — exit without touching Supabase or the DOM.
   if (_config.mode === 'idle') return;
+
+  const inRecordMode = _config.mode === 'record';
 
   // Step 3: initialize transports.
   // ingestUrl — required for all DB operations on prototype pages.
@@ -275,7 +297,8 @@ async function _boot() {
     initSupabaseClient(_config);
   }
   if (!_config.ingestUrl && !(_config.supabaseUrl && _config.supabaseKey)) {
-    console.error('[UXTracker] Neither ingestUrl nor supabase credentials are configured.');
+    if (inRecordMode) _recordError('No ingest URL configured.\nAdd data-ingest-url to your script tag.');
+    else console.error('[UXTracker] Neither ingestUrl nor supabase credentials are configured.');
     return;
   }
 
@@ -284,13 +307,15 @@ async function _boot() {
   try {
     study = await fetchStudy(_config.studyId);
   } catch (err) {
-    console.error('[UXTracker] Failed to load study:', err);
+    if (inRecordMode) _recordError(`Could not reach the Edge Function.\n${err.message}\n\nCheck that SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in your Supabase Edge Function environment.`);
+    else console.error('[UXTracker] Failed to load study:', err);
     return;
   }
 
   // Step 5: study must exist.
   if (!study) {
-    console.error('[UXTracker] Study not found:', _config.studyId);
+    if (inRecordMode) _recordError(`Study not found (id: ${_config.studyId}).\nVerify the study ID and that the study has been saved.`);
+    else console.error('[UXTracker] Study not found:', _config.studyId);
     return;
   }
 

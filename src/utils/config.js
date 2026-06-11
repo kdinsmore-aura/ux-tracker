@@ -98,6 +98,9 @@
 
 export const CONFIG_VERSION = '1';
 
+// sessionStorage key used to persist recording mode across page navigations.
+export const RECORDING_SESSION_KEY = 'uxt_rec_session';
+
 const DEFAULTS = {
   mode: 'auto',
   screenshotDelay: 600,
@@ -285,6 +288,26 @@ export default function resolveConfig() {
   // Resolve 'auto' mode now so consumers always see a concrete mode value.
   if (merged.mode === 'auto') {
     merged.mode = resolveAutoMode();
+  }
+
+  // ── Recording session persistence ──────────────────────────────────────────
+  // When ?mode=record is detected, save to sessionStorage so subsequent pages
+  // in the same tab continue in record mode without needing URL params.
+  // When mode resolves to idle, check for a saved recording session.
+  try {
+    if (merged.mode === 'record') {
+      sessionStorage.setItem(RECORDING_SESSION_KEY, JSON.stringify({
+        mode: 'record', studyId: merged.studyId || null,
+      }));
+    } else if (merged.mode === 'idle') {
+      const saved = JSON.parse(sessionStorage.getItem(RECORDING_SESSION_KEY) || 'null');
+      if (saved?.mode === 'record') {
+        merged.mode = 'record';
+        if (!merged.studyId && saved.studyId) merged.studyId = saved.studyId;
+      }
+    }
+  } catch (_) {
+    // sessionStorage unavailable (private-browsing quota, cross-origin) — skip.
   }
 
   return Object.freeze(merged);

@@ -7,6 +7,30 @@ import {
   updateStudyIdealPath,
 } from './utils/supabase-client.js';
 import { startClickCapture, stopClickCapture } from './tracker.js';
+import { RECORDING_SESSION_KEY } from './utils/config.js';
+
+// ─── sessionStorage helpers ───────────────────────────────────────────────────
+
+const RECORDING_PATH_KEY = 'uxt_rec_path';
+
+function _loadSavedPath() {
+  try {
+    const raw = sessionStorage.getItem(RECORDING_PATH_KEY);
+    const data = raw ? JSON.parse(raw) : null;
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
+}
+
+function _savePath(path) {
+  try { sessionStorage.setItem(RECORDING_PATH_KEY, JSON.stringify(path)); } catch (_) {}
+}
+
+function _clearRecordingSession() {
+  try {
+    sessionStorage.removeItem(RECORDING_SESSION_KEY);
+    sessionStorage.removeItem(RECORDING_PATH_KEY);
+  } catch (_) {}
+}
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
@@ -166,7 +190,7 @@ const _PANEL_CSS = `
   #body {
     padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
   }
-  #task-desc { font-size: 13px; color: #cdd6f4; line-height: 1.45; min-height: 18px; }
+  #task-desc { font-size: 13px; color: #cdd6f4; line-height: 1.45; min-height: 18px; white-space: pre-line; }
   .meta { font-size: 11px; color: #6c7086; }
   .btn-row { display: flex; gap: 8px; }
   button {
@@ -306,6 +330,7 @@ class UxtRecorderPanel extends HTMLElement {
     _state.idealPath.push(step);
     _state.currentStepIndex += 1;
     _state.lastStepTime = now;
+    _savePath(_state.idealPath);
     this.updateStepCount(_state.idealPath.length);
     this.addStepToLog(step);
   }
@@ -333,6 +358,7 @@ class UxtRecorderPanel extends HTMLElement {
   async _saveAndFinish() {
     stopClickCapture();
     _state.isRecording = false;
+    _clearRecordingSession();
 
     try {
       await updateStudyIdealPath(_state.studyId, _state.idealPath, 'active');
@@ -367,7 +393,17 @@ export default async function initRecorder(config, study) {
   _state.lastStepTime = Date.now();
   _state.isRecording = true;
 
-  const scriptSrc = document.querySelector('script[data-study]')?.src ?? '';
+  // Restore any steps recorded on earlier pages in this recording session
+  const savedPath = _loadSavedPath();
+  if (savedPath.length > 0) {
+    _state.idealPath = savedPath;
+    _state.currentStepIndex = savedPath.length;
+  }
+
+  // Derive the framework base URL from whichever script attribute is present
+  const scriptEl = document.querySelector('script[data-study]')
+                || document.querySelector('script[data-ingest-url]');
+  const scriptSrc = scriptEl?.src ?? '';
   const slashIdx = scriptSrc.lastIndexOf('/v1/');
   _frameworkBaseUrl = slashIdx !== -1 ? scriptSrc.slice(0, slashIdx) : scriptSrc.slice(0, scriptSrc.lastIndexOf('/'));
 
@@ -379,9 +415,19 @@ export default async function initRecorder(config, study) {
   document.body.appendChild(panelEl);
   _panel = panelEl;
 
-  // Show study name / description in the panel header area
-  const taskDesc = study.description || study.name || null;
-  if (taskDesc) _panel.setTaskDescription(taskDesc);
+  // Show numbered task prompts; fall back to study description / name
+  const tasks = (study.tasks || [])
+    .map((t, i) => `${i + 1}. ${typeof t === 'string' ? t : (t.prompt || '')}`)
+    .filter(s => s.trim().length > 3);
+  const taskText = tasks.length > 0
+    ? tasks.join('\n')
+    : (study.description || study.name || null);
+  if (taskText) _panel.setTaskDescription(taskText);
+
+  // Sync step counter if restoring a prior session
+  if (_state.idealPath.length > 0) {
+    _panel.updateStepCount(_state.idealPath.length);
+  }
 
   // Intercept SPA navigation
   _patchHistory();
@@ -411,6 +457,7 @@ export default async function initRecorder(config, study) {
 
     _state.idealPath.push(step);
     _state.currentStepIndex += 1;
+    _savePath(_state.idealPath);
 
     _panel.updateStepCount(_state.idealPath.length);
     _panel.addStepToLog(step);

@@ -53,7 +53,7 @@ function ok(data: unknown = null): Response {
 }
 
 function fail(error: string): Response {
-  return jsonResponse({ success: true, data: null, error });
+  return jsonResponse({ success: false, data: null, error });
 }
 
 function bad(error: string): Response {
