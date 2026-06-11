@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Home — Orbit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dashboard-body">
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TRACKING POINTS ON THIS PAGE
+       • page_view       — on load (includes auth method if known)
+       • dashboard_signout_click  — sign out clicked
+  ═══════════════════════════════════════════════════════════ -->
+
+  <!-- Top nav -->
+  <nav class="dash-nav" data-track-section="dashboard_nav">
+
+    <!-- Logo -->
+    <a href="index.html" class="logo" style="margin-bottom:0;">
+      <svg width="24" height="24" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <rect width="28" height="28" rx="7" fill="#18181B"/>
+        <circle cx="14" cy="14" r="5.5" stroke="white" stroke-width="2"/>
+        <circle cx="14" cy="14" r="1.75" fill="white"/>
+      </svg>
+      <span class="logo-name">Orbit</span>
+    </a>
+
+    <!-- Nav items (placeholder) -->
+    <div style="display:flex;align-items:center;gap:4px;">
+      <button class="dash-nav-btn active" style="background:var(--bg);border:none;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--text);cursor:pointer;font-family:inherit;">Home</button>
+      <button class="dash-nav-btn" style="background:none;border:none;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;font-family:inherit;">Projects</button>
+      <button class="dash-nav-btn" style="background:none;border:none;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;font-family:inherit;">Teams</button>
+    </div>
+
+    <!-- User avatar + sign out -->
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div class="avatar-circle" id="nav-avatar" title="Your account">J</div>
+      <button
+        id="btn-signout"
+        style="background:none;border:1px solid var(--border);padding:5px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--text-sec);cursor:pointer;font-family:inherit;transition:background .15s,border-color .15s;"
+        data-track="dashboard_signout_click"
+      >
+        Sign out
+      </button>
+    </div>
+
+  </nav>
+
+  <!-- Main content -->
+  <main class="dash-content" data-track-section="dashboard_main">
+
+    <!-- Welcome -->
+    <div class="dash-welcome">
+      <h1 id="welcome-heading">Good morning 👋</h1>
+      <p id="welcome-sub">Here's what's happening in your workspace today.</p>
+    </div>
+
+    <!-- Stats cards -->
+    <div class="card-grid">
+
+      <div class="dash-card">
+        <div class="dash-card-label">Open tasks</div>
+        <div class="dash-card-value">12</div>
+        <div class="dash-card-sub">↑ 3 added this week</div>
+      </div>
+
+      <div class="dash-card">
+        <div class="dash-card-label">Completed</div>
+        <div class="dash-card-value">47</div>
+        <div class="dash-card-sub">↑ 8 in the last 7 days</div>
+      </div>
+
+      <div class="dash-card">
+        <div class="dash-card-label">Team members</div>
+        <div class="dash-card-value">6</div>
+        <div class="dash-card-sub">2 online now</div>
+      </div>
+
+    </div>
+
+    <!-- Recent activity -->
+    <div class="dash-section">
+      <h2>Recent activity</h2>
+      <div class="placeholder-row" style="width:80%;"></div>
+      <div class="placeholder-row" style="width:65%;"></div>
+      <div class="placeholder-row" style="width:72%;"></div>
+      <div class="placeholder-row" style="width:55%;"></div>
+      <div class="placeholder-row" style="width:68%;"></div>
+    </div>
+
+    <!-- My tasks (placeholder) -->
+    <div class="dash-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h2 style="margin-bottom:0;">My tasks</h2>
+        <button style="background:none;border:none;font-size:13px;font-weight:500;color:var(--primary);cursor:pointer;font-family:inherit;padding:0;">
+          View all →
+        </button>
+      </div>
+
+      <!-- Task rows (prototype placeholders) -->
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;">
+          <input type="checkbox" style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer;">
+          <span style="font-size:14px;flex:1;">Finalize Q3 design review</span>
+          <span style="font-size:12px;color:var(--muted);">Today</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;">
+          <input type="checkbox" style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer;">
+          <span style="font-size:14px;flex:1;">Update onboarding documentation</span>
+          <span style="font-size:12px;color:var(--muted);">Tomorrow</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;">
+          <input type="checkbox" style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer;">
+          <span style="font-size:14px;flex:1;">Review pull requests from backend team</span>
+          <span style="font-size:12px;color:var(--muted);">Friday</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Success toast (shown briefly on arrival) -->
+    <div
+      id="toast"
+      style="
+        position:fixed;
+        bottom:24px;
+        left:50%;
+        transform:translateX(-50%) translateY(20px);
+        background:var(--primary);
+        color:#fff;
+        padding:10px 18px;
+        border-radius:8px;
+        font-size:13px;
+        font-weight:500;
+        box-shadow:0 4px 12px rgba(0,0,0,.2);
+        opacity:0;
+        transition:opacity .3s, transform .3s;
+        white-space:nowrap;
+        z-index:100;
+        pointer-events:none;
+      "
+    ></div>
+
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    // ── Page tracking ──────────────────────────────────────────
+    const authParam = Proto.param('auth') || 'email';
+    Track.page('Dashboard', { path: 'dashboard.html', auth_method: authParam });
+
+    // ── Personalize with stored user ───────────────────────────
+    const user = Proto.getUser();
+    const displayName = user?.name || 'there';
+    const firstWord   = displayName.split(' ')[0];
+    const initial     = firstWord[0]?.toUpperCase() || 'U';
+
+    document.getElementById('nav-avatar').textContent = initial;
+
+    // Time-based greeting
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    document.getElementById('welcome-heading').textContent = `${greeting}, ${firstWord} 👋`;
+
+    // Identify user
+    if (user?.email) {
+      Track.identify(user.email, { name: displayName, email: user.email });
+    }
+
+    // ── Arrival toast ──────────────────────────────────────────
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateX(-50%) translateY(0)';
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(20px)';
+      }, 3000);
+    }
+
+    // Show appropriate success message based on how user arrived
+    const fromOnboarding = document.referrer.includes('onboarding');
+    const fromReset      = Proto.param('reset') === 'success';
+
+    if (fromOnboarding || !document.referrer) {
+      showToast('🎉 Welcome to Orbit!');
+    } else {
+      showToast('✓ Signed in successfully');
+    }
+
+    // ── Sign out ───────────────────────────────────────────────
+    document.getElementById('btn-signout').addEventListener('click', () => {
+      Track.event('dashboard_signout_click');
+      Proto.clearUser();
+
+      // Brief loading state then redirect
+      const btn = document.getElementById('btn-signout');
+      btn.textContent = 'Signing out…';
+      btn.disabled = true;
+
+      setTimeout(() => {
+        Proto.go('index.html');
+      }, 600);
+    });
+
+    // Sign out button hover
+    const signoutBtn = document.getElementById('btn-signout');
+    signoutBtn.addEventListener('mouseenter', () => { signoutBtn.style.background = 'var(--bg)'; signoutBtn.style.borderColor = '#D4D4D8'; });
+    signoutBtn.addEventListener('mouseleave', () => { signoutBtn.style.background = '';           signoutBtn.style.borderColor = ''; });
+  </script>
+
+</body>
+</html>

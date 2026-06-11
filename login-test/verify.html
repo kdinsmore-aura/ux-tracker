@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify — Orbit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Resend timer */
+    .resend-row {
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .resend-btn {
+      background: none;
+      border: none;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+    }
+
+    .resend-btn:disabled {
+      color: var(--muted);
+      cursor: not-allowed;
+      text-decoration: none;
+    }
+
+    /* Destination badge */
+    .destination-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-sec);
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TRACKING POINTS ON THIS PAGE
+       Context is passed via ?context=[signup|signin|reset]
+       Method is passed via ?method=[email|sms]
+
+       • page_view              — on load (includes context + method)
+       • verify_method_switch   — user switches email ↔ SMS
+       • verify_digit_start     — first OTP digit entered
+       • verify_code_complete   — all 6 digits entered (auto-submits)
+       • verify_resend_click    — "Resend code" clicked
+       • verify_submit_attempt  — Verify button clicked
+       • verify_submit_error    — wrong / incomplete code
+       • verify_submit_success  — code accepted, moving forward
+       • verify_back_click      — back link clicked
+  ═══════════════════════════════════════════════════════════ -->
+
+  <div class="auth-card" data-track-section="verify_form">
+
+    <!-- Logo -->
+    <a href="index.html" class="logo">
+      <svg width="26" height="26" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <rect width="28" height="28" rx="7" fill="#18181B"/>
+        <circle cx="14" cy="14" r="5.5" stroke="white" stroke-width="2"/>
+        <circle cx="14" cy="14" r="1.75" fill="white"/>
+      </svg>
+      <span class="logo-name">Orbit</span>
+    </a>
+
+    <!-- Method toggle (email / SMS) -->
+    <div class="method-toggle" id="method-toggle">
+      <button type="button" class="method-btn active" id="method-email" data-method="email">
+        Email
+      </button>
+      <button type="button" class="method-btn" id="method-sms" data-method="sms">
+        Text message
+      </button>
+    </div>
+
+    <!-- Dynamic heading + description -->
+    <h1 class="auth-title" id="page-title">Check your email</h1>
+    <p class="auth-subtitle" id="page-subtitle">
+      Enter the 6-digit code we sent to
+    </p>
+
+    <!-- Masked destination (email/phone) -->
+    <div style="text-align:center; margin-bottom: 4px;">
+      <span class="destination-badge" id="destination-badge">
+        <!-- icon + address populated by JS -->
+      </span>
+    </div>
+
+    <!-- Alert -->
+    <div id="alert" class="alert" style="display:none;" role="alert"></div>
+
+    <!-- OTP input -->
+    <div class="otp-group" id="otp-group" aria-label="6-digit verification code">
+      <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 1" id="d0">
+      <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 2" id="d1">
+      <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 3" id="d2">
+      <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 4" id="d3">
+      <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 5" id="d4">
+      <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 6" id="d5">
+    </div>
+
+    <!-- Verify button -->
+    <button
+      id="btn-verify"
+      class="btn btn-primary"
+      style="margin-bottom:12px;"
+      data-track="verify_submit_attempt"
+    >
+      Verify
+    </button>
+
+    <!-- Resend -->
+    <div class="resend-row">
+      <span id="resend-text">Didn't receive it? </span>
+      <button id="btn-resend" class="resend-btn" disabled data-track="verify_resend_click">
+        Resend code
+      </button>
+      <span id="timer-text"> in <strong id="timer-count">60</strong>s</span>
+    </div>
+
+    <!-- Back link -->
+    <p class="auth-footer" style="margin-top:20px;">
+      <a href="#" id="btn-back" data-track="verify_back_click">← Go back</a>
+    </p>
+
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // ── Read context from URL ──────────────────────────────────
+    const context = Proto.param('context') || 'signup'; // signup | signin | reset
+    const method  = Proto.param('method')  || 'email';  // email | sms
+    const target  = Proto.param('target')  || (method === 'email' ? 'your email' : 'your phone');
+
+    // ── Page tracking ──────────────────────────────────────────
+    Track.page('Verify', { context, method, path: 'verify.html' });
+
+    // ── Dynamic copy ───────────────────────────────────────────
+    const copy = {
+      signup: {
+        email: { title: 'Check your email',  sub: 'Enter the 6-digit code we sent to' },
+        sms:   { title: 'Check your texts',  sub: 'Enter the 6-digit code we texted to' },
+      },
+      signin: {
+        email: { title: 'Two-step verification', sub: 'Enter the code we sent to' },
+        sms:   { title: 'Two-step verification', sub: 'Enter the code we texted to' },
+      },
+      reset: {
+        email: { title: 'Reset verification', sub: 'Enter the code we sent to' },
+        sms:   { title: 'Reset verification', sub: 'Enter the code we texted to' },
+      },
+    };
+
+    const { title, sub } = (copy[context] || copy.signup)[method] || copy.signup.email;
+    document.getElementById('page-title').textContent = title;
+    document.getElementById('page-subtitle').textContent = sub;
+
+    // ── Destination badge ──────────────────────────────────────
+    const badge = document.getElementById('destination-badge');
+    const icon  = method === 'email'
+      ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 01-2.06 0L2 7"/></svg>`
+      : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>`;
+    badge.innerHTML = icon + target;
+
+    // ── Active method toggle ───────────────────────────────────
+    let currentMethod = method;
+
+    document.getElementById('method-' + method).classList.add('active');
+    document.getElementById('method-' + (method === 'email' ? 'sms' : 'email')).classList.remove('active');
+
+    document.querySelectorAll('.method-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const newMethod = btn.dataset.method;
+        if (newMethod === currentMethod) return;
+
+        document.querySelectorAll('.method-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMethod = newMethod;
+
+        Track.event('verify_method_switch', { context, from: method, to: newMethod });
+
+        // Update copy
+        const { title: t, sub: s } = (copy[context] || copy.signup)[newMethod];
+        document.getElementById('page-title').textContent = t;
+        document.getElementById('page-subtitle').textContent = s;
+
+        // Update badge icon
+        const newIcon = newMethod === 'email'
+          ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 01-2.06 0L2 7"/></svg>`
+          : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>`;
+        badge.innerHTML = newIcon + target;
+        clearAlert();
+        resetOtp();
+      });
+    });
+
+    // ── OTP input logic ────────────────────────────────────────
+    const digits = Array.from({ length: 6 }, (_, i) => document.getElementById('d' + i));
+    let digitStartTracked = false;
+
+    digits.forEach((inp, idx) => {
+      inp.addEventListener('focus', () => inp.select());
+
+      inp.addEventListener('input', e => {
+        // Strip non-digits
+        const val = e.target.value.replace(/\D/g, '');
+        e.target.value = val.slice(-1);
+
+        if (val && !digitStartTracked) {
+          digitStartTracked = true;
+          Track.event('verify_digit_start', { context, method: currentMethod });
+        }
+
+        if (val) {
+          inp.classList.add('filled');
+          if (idx < 5) digits[idx + 1].focus();
+        } else {
+          inp.classList.remove('filled');
+        }
+
+        clearAlert();
+
+        // Auto-submit when all filled
+        if (digits.every(d => d.value)) {
+          Track.event('verify_code_complete', { context, method: currentMethod });
+          submit();
+        }
+      });
+
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Backspace' && !inp.value && idx > 0) {
+          digits[idx - 1].focus();
+          digits[idx - 1].value = '';
+          digits[idx - 1].classList.remove('filled');
+        }
+      });
+
+      // Handle paste
+      inp.addEventListener('paste', e => {
+        e.preventDefault();
+        const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
+        if (!pasted) return;
+        pasted.split('').slice(0, 6).forEach((ch, i) => {
+          if (digits[i]) {
+            digits[i].value = ch;
+            digits[i].classList.add('filled');
+          }
+        });
+        const next = Math.min(pasted.length, 5);
+        digits[next].focus();
+        if (pasted.length >= 6) {
+          Track.event('verify_code_complete', { context, method: currentMethod, via: 'paste' });
+          submit();
+        }
+      });
+    });
+
+    function resetOtp() {
+      digits.forEach(d => { d.value = ''; d.classList.remove('filled'); });
+      digits[0].focus();
+      digitStartTracked = false;
+    }
+
+    // ── Alert helpers ──────────────────────────────────────────
+    function showAlert(msg, type = 'error') {
+      const el = document.getElementById('alert');
+      el.className = `alert alert-${type}`;
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    function clearAlert() {
+      document.getElementById('alert').style.display = 'none';
+    }
+
+    // ── Submit / verify ────────────────────────────────────────
+    function submit() {
+      const code = digits.map(d => d.value).join('');
+      if (code.length < 6) {
+        showAlert('Please enter the complete 6-digit code.');
+        Track.event('verify_submit_error', { reason: 'incomplete', context, method: currentMethod });
+        return;
+      }
+
+      Track.event('verify_submit_attempt', { context, method: currentMethod });
+      const btn = document.getElementById('btn-verify');
+      btnLoading(btn, true);
+
+      // Prototype: accept any 6-digit code
+      setTimeout(() => {
+        Track.event('verify_submit_success', { context, method: currentMethod });
+
+        // Navigate based on context
+        if (context === 'signup') {
+          Proto.go('onboarding.html');
+        } else if (context === 'signin') {
+          Proto.go('dashboard.html');
+        } else if (context === 'reset') {
+          Proto.go('reset-password.html');
+        }
+      }, 900);
+    }
+
+    document.getElementById('btn-verify').addEventListener('click', submit);
+
+    // ── Resend countdown ───────────────────────────────────────
+    let countdown = 60;
+    const timerCount = document.getElementById('timer-count');
+    const timerText  = document.getElementById('timer-text');
+    const resendBtn  = document.getElementById('btn-resend');
+
+    const timer = setInterval(() => {
+      countdown--;
+      timerCount.textContent = countdown;
+      if (countdown <= 0) {
+        clearInterval(timer);
+        timerText.style.display = 'none';
+        resendBtn.disabled = false;
+      }
+    }, 1000);
+
+    resendBtn.addEventListener('click', () => {
+      Track.event('verify_resend_click', { context, method: currentMethod });
+      resendBtn.disabled = true;
+      timerText.style.display = '';
+      countdown = 60;
+      timerCount.textContent = 60;
+      resetOtp();
+      showAlert('A new code has been sent.', 'success');
+
+      const t2 = setInterval(() => {
+        countdown--;
+        timerCount.textContent = countdown;
+        if (countdown <= 0) { clearInterval(t2); timerText.style.display = 'none'; resendBtn.disabled = false; }
+      }, 1000);
+    });
+
+    // ── Back link ──────────────────────────────────────────────
+    document.getElementById('btn-back').addEventListener('click', e => {
+      e.preventDefault();
+      Track.event('verify_back_click', { context, method: currentMethod });
+      const backMap = { signup: 'signup.html', signin: 'signin.html', reset: 'forgot-password.html' };
+      Proto.go(backMap[context] || 'index.html');
+    });
+
+    // ── Auto-focus first digit ─────────────────────────────────
+    digits[0].focus();
+  </script>
+
+</body>
+</html>

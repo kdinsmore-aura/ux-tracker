@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create account — Orbit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TRACKING POINTS ON THIS PAGE
+       • page_view              — on load
+       • signup_oauth_google    — "Continue with Google" click
+       • signup_oauth_apple     — "Continue with Apple" click
+       • signup_field_focus     — first interaction with any field (name/email/password)
+       • signup_email_entered   — valid email typed + blur
+       • signup_password_focus  — password field focus
+       • signup_strength_change — password strength level change
+       • signup_submit_attempt  — form submit button click
+       • signup_submit_error    — validation failed (with reason)
+       • signup_submit_success  — proceeding to verification
+  ═══════════════════════════════════════════════════════════ -->
+
+  <div class="auth-card" data-track-section="signup_form">
+
+    <!-- Logo -->
+    <a href="index.html" class="logo">
+      <svg width="26" height="26" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <rect width="28" height="28" rx="7" fill="#18181B"/>
+        <circle cx="14" cy="14" r="5.5" stroke="white" stroke-width="2"/>
+        <circle cx="14" cy="14" r="1.75" fill="white"/>
+      </svg>
+      <span class="logo-name">Orbit</span>
+    </a>
+
+    <h1 class="auth-title">Create your account</h1>
+    <p class="auth-subtitle">Get started free — no credit card required.</p>
+
+    <!-- OAuth options -->
+    <a
+      id="btn-google"
+      href="#"
+      class="btn-oauth btn-google"
+      data-track="signup_oauth_google"
+      role="button"
+    >
+      <!-- Google "G" logo -->
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+        <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
+        <path d="M3.964 10.706A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" fill="#FBBC05"/>
+        <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+      </svg>
+      Continue with Google
+    </a>
+
+    <a
+      id="btn-apple"
+      href="#"
+      class="btn-oauth btn-apple"
+      data-track="signup_oauth_apple"
+      role="button"
+    >
+      <!-- Apple logo -->
+      <svg width="16" height="16" viewBox="0 0 30 30" aria-hidden="true" fill="white">
+        <path d="M25.565,9.785c-0.123,0.077-3.051,1.702-3.051,5.305c0.138,4.109,3.695,5.55,3.756,5.55c-0.061,0.077-0.537,1.963-1.947,3.94C23.204,26.283,21.962,28,20.076,28c-1.794,0-2.438-1.135-4.508-1.135c-2.223,0-2.852,1.135-4.554,1.135c-1.886,0-3.22-1.809-4.4-3.496c-1.533-2.208-2.836-5.673-2.882-9c-0.031-1.763,0.307-3.496,1.165-4.968c1.211-2.055,3.373-3.45,5.734-3.496c1.809-0.061,3.419,1.242,4.523,1.242c1.058,0,3.036-1.242,5.274-1.242C21.394,7.041,23.97,7.332,25.565,9.785z M15.001,6.688c-0.322-1.61,0.567-3.22,1.395-4.247c1.058-1.242,2.729-2.085,4.17-2.085c0.092,1.61-0.491,3.189-1.533,4.339C18.098,5.937,16.488,6.872,15.001,6.688z"/>
+      </svg>
+      Continue with Apple
+    </a>
+
+    <!-- Divider -->
+    <div class="divider">
+      <div class="divider-line"></div>
+      <span class="divider-text">or sign up with email</span>
+      <div class="divider-line"></div>
+    </div>
+
+    <!-- Alert (validation errors shown here) -->
+    <div id="alert" class="alert alert-error" style="display:none;" role="alert"></div>
+
+    <!-- Signup form -->
+    <form id="signup-form" novalidate>
+
+      <div class="form-group">
+        <label for="full-name">Full name</label>
+        <input
+          type="text"
+          id="full-name"
+          name="fullName"
+          autocomplete="name"
+          placeholder="Jane Smith"
+          data-track-field="full_name"
+        >
+        <span class="field-error" id="err-name"></span>
+      </div>
+
+      <div class="form-group">
+        <label for="email">Work email</label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          autocomplete="email"
+          placeholder="jane@company.com"
+          data-track-field="email"
+        >
+        <span class="field-error" id="err-email"></span>
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <div class="input-wrapper">
+          <input
+            type="password"
+            id="password"
+            name="password"
+            autocomplete="new-password"
+            placeholder="Min. 8 characters"
+            data-track-field="password"
+          >
+          <button type="button" class="toggle-password" id="toggle-pw" aria-label="Show password" tabindex="-1">
+            <svg id="icon-eye" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <svg id="icon-eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+              <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>
+          </button>
+        </div>
+        <!-- Password strength indicator -->
+        <div class="strength-bar" id="strength-bar" style="margin-top:7px;">
+          <div class="strength-seg" id="seg-1"></div>
+          <div class="strength-seg" id="seg-2"></div>
+          <div class="strength-seg" id="seg-3"></div>
+          <div class="strength-seg" id="seg-4"></div>
+        </div>
+        <div class="strength-label" id="strength-label"></div>
+        <span class="field-error" id="err-password"></span>
+      </div>
+
+      <!-- Verification method choice -->
+      <div class="form-group" style="margin-top:4px;">
+        <label>Verify my account with</label>
+        <div class="method-toggle" id="verify-method-toggle">
+          <button type="button" class="method-btn active" id="method-email" data-method="email">
+            Email code
+          </button>
+          <button type="button" class="method-btn" id="method-sms" data-method="sms">
+            Text message
+          </button>
+        </div>
+      </div>
+
+      <!-- SMS phone field (shown when SMS selected) -->
+      <div class="form-group" id="phone-group" style="display:none;">
+        <label for="phone">Mobile number</label>
+        <input
+          type="tel"
+          id="phone"
+          name="phone"
+          autocomplete="tel"
+          placeholder="+1 555 000 0000"
+          data-track-field="phone"
+        >
+        <span class="field-error" id="err-phone"></span>
+      </div>
+
+      <!-- TRACKING: signup_submit_attempt / signup_submit_success -->
+      <button
+        type="submit"
+        id="btn-submit"
+        class="btn btn-primary"
+        style="margin-top:6px;"
+        data-track="signup_submit_attempt"
+      >
+        Create account
+      </button>
+
+    </form>
+
+    <p class="auth-footer">
+      Already have an account?
+      <a href="signin.html" data-track="signup_goto_signin">Sign in</a>
+    </p>
+
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // ── Page tracking ──────────────────────────────────────────
+    Track.page('Signup', { path: 'signup.html' });
+
+    // ── State ─────────────────────────────────────────────────
+    let verifyMethod = 'email';
+    let firstFieldFocused = false;
+    let lastStrengthLevel = 0;
+
+    // ── OAuth clicks ───────────────────────────────────────────
+    document.getElementById('btn-google').addEventListener('click', e => {
+      e.preventDefault();
+      Track.event('signup_oauth_google');
+      // Prototype: skip to onboarding to simulate OAuth success
+      Proto.go('onboarding.html', { method: 'google' });
+    });
+
+    document.getElementById('btn-apple').addEventListener('click', e => {
+      e.preventDefault();
+      Track.event('signup_oauth_apple');
+      Proto.go('onboarding.html', { method: 'apple' });
+    });
+
+    // ── Verify method toggle ───────────────────────────────────
+    document.querySelectorAll('.method-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.method-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        verifyMethod = btn.dataset.method;
+
+        const phoneGroup = document.getElementById('phone-group');
+        phoneGroup.style.display = verifyMethod === 'sms' ? 'block' : 'none';
+
+        Track.event('signup_method_change', { method: verifyMethod });
+      });
+    });
+
+    // ── Field focus tracking ───────────────────────────────────
+    ['full-name', 'email', 'password', 'phone'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+
+      el.addEventListener('focus', () => {
+        if (!firstFieldFocused) {
+          firstFieldFocused = true;
+          Track.event('signup_field_focus', { field: id });
+        }
+        if (id === 'password') Track.event('signup_password_focus');
+      });
+    });
+
+    // ── Email blur tracking ────────────────────────────────────
+    document.getElementById('email').addEventListener('blur', e => {
+      if (isEmail(e.target.value)) {
+        Track.event('signup_email_entered', { domain: e.target.value.split('@')[1] });
+      }
+    });
+
+    // ── Password strength ──────────────────────────────────────
+    document.getElementById('password').addEventListener('input', e => {
+      const pw = e.target.value;
+      const level = passwordStrength(pw);
+      const segs = document.querySelectorAll('.strength-seg');
+      const label = document.getElementById('strength-label');
+
+      segs.forEach((seg, i) => {
+        seg.style.background = i < level ? strengthColors[level] : '';
+      });
+      label.textContent = pw.length ? strengthLabels[level] : '';
+      label.style.color = strengthColors[level] || '';
+
+      if (level !== lastStrengthLevel) {
+        lastStrengthLevel = level;
+        Track.event('signup_strength_change', { level, label: strengthLabels[level] });
+      }
+    });
+
+    // ── Show/hide password toggle ──────────────────────────────
+    document.getElementById('toggle-pw').addEventListener('click', () => {
+      const input = document.getElementById('password');
+      const isHidden = input.type === 'password';
+      input.type = isHidden ? 'text' : 'password';
+      document.getElementById('icon-eye').style.display     = isHidden ? 'none'  : '';
+      document.getElementById('icon-eye-off').style.display = isHidden ? ''      : 'none';
+    });
+
+    // ── Form submit ────────────────────────────────────────────
+    document.getElementById('signup-form').addEventListener('submit', e => {
+      e.preventDefault();
+
+      const nameVal  = document.getElementById('full-name').value.trim();
+      const emailVal = document.getElementById('email').value.trim();
+      const pwVal    = document.getElementById('password').value;
+      const phoneVal = document.getElementById('phone').value.trim();
+
+      clearFieldErrors(e.target);
+      document.getElementById('alert').style.display = 'none';
+
+      let valid = true;
+
+      if (!nameVal) {
+        showFieldError(
+          document.getElementById('full-name'),
+          document.getElementById('err-name'),
+          'Please enter your name.'
+        );
+        valid = false;
+      }
+
+      if (!isEmail(emailVal)) {
+        showFieldError(
+          document.getElementById('email'),
+          document.getElementById('err-email'),
+          'Please enter a valid email address.'
+        );
+        valid = false;
+      }
+
+      if (pwVal.length < 8) {
+        showFieldError(
+          document.getElementById('password'),
+          document.getElementById('err-password'),
+          'Password must be at least 8 characters.'
+        );
+        valid = false;
+      }
+
+      if (verifyMethod === 'sms' && !phoneVal) {
+        showFieldError(
+          document.getElementById('phone'),
+          document.getElementById('err-phone'),
+          'Please enter your mobile number.'
+        );
+        valid = false;
+      }
+
+      if (!valid) {
+        Track.event('signup_submit_error', { reason: 'validation_failed' });
+        return;
+      }
+
+      // Simulate submit + navigate to verification
+      Track.event('signup_submit_attempt');
+      const btn = document.getElementById('btn-submit');
+      btnLoading(btn, true);
+
+      // Store prototype user data
+      Proto.setUser({ name: nameVal, email: emailVal });
+
+      setTimeout(() => {
+        Track.event('signup_submit_success', { method: verifyMethod });
+        Proto.go('verify.html', {
+          context: 'signup',
+          method: verifyMethod,
+          target: verifyMethod === 'email' ? maskEmail(emailVal) : maskPhone(phoneVal),
+        });
+      }, 800);
+    });
+
+    // ── Footer link tracking ───────────────────────────────────
+    document.querySelector('[data-track="signup_goto_signin"]')
+      .addEventListener('click', () => Track.event('signup_goto_signin'));
+  </script>
+
+</body>
+</html>

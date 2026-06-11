@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Get started — Orbit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .skip-link {
+      display: block;
+      text-align: right;
+      font-size: 13px;
+      color: var(--muted);
+      text-decoration: none;
+      margin-bottom: 20px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-family: inherit;
+      padding: 0;
+      width: 100%;
+    }
+
+    .skip-link:hover { color: var(--text-sec); text-decoration: underline; }
+
+    /* Avatar upload */
+    .avatar-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .avatar-circle-upload {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #E4E4E7 0%, #D4D4D8 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border: 2px dashed #A1A1AA;
+      transition: border-color .15s, background .15s;
+      position: relative;
+      overflow: hidden;
+      font-size: 26px;
+      font-weight: 600;
+      color: var(--text-sec);
+    }
+
+    .avatar-circle-upload:hover {
+      border-color: var(--primary);
+      background: linear-gradient(135deg, #D4D4D8 0%, #C4C4C8 100%);
+    }
+
+    .avatar-upload-hint {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    /* Preference toggle */
+    .pref-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 13px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: #fff;
+    }
+
+    .pref-label { font-size: 14px; font-weight: 500; color: var(--text); }
+    .pref-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* Toggle switch */
+    .toggle-switch {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      top: 3px;
+      left: 3px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.15);
+      transition: transform .2s;
+    }
+
+    .toggle-switch input:checked + .toggle-track {
+      background: var(--primary);
+    }
+
+    .toggle-switch input:checked + .toggle-track::after {
+      transform: translateX(18px);
+    }
+
+    /* Completion screen */
+    .completion-icon {
+      width: 56px;
+      height: 56px;
+      background: #F0FDF4;
+      border: 1px solid #BBF7D0;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TRACKING POINTS ON THIS PAGE
+       • page_view                    — on load
+       • onboarding_step_view         — each step shown (step: 1|2|3)
+       • onboarding_avatar_click      — avatar upload placeholder clicked
+       • onboarding_field_focus       — display name / username focus
+       • onboarding_step1_continue    — Step 1 Continue clicked
+       • onboarding_role_select       — role card clicked (role: value)
+       • onboarding_step2_continue    — Step 2 Continue clicked
+       • onboarding_step2_skip        — Skip link on step 2
+       • onboarding_pref_toggle       — preference toggle changed (pref: name, value: bool)
+       • onboarding_step3_continue    — Final "Go to Orbit" button
+       • onboarding_step3_skip        — Skip link on step 3
+       • onboarding_complete          — user reaches dashboard
+  ═══════════════════════════════════════════════════════════ -->
+
+  <div class="auth-card" data-track-section="onboarding">
+
+    <!-- Logo -->
+    <a href="index.html" class="logo" style="margin-bottom:24px;">
+      <svg width="26" height="26" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <rect width="28" height="28" rx="7" fill="#18181B"/>
+        <circle cx="14" cy="14" r="5.5" stroke="white" stroke-width="2"/>
+        <circle cx="14" cy="14" r="1.75" fill="white"/>
+      </svg>
+      <span class="logo-name">Orbit</span>
+    </a>
+
+    <!-- Step progress indicator -->
+    <div class="step-progress" id="step-progress" aria-label="Step progress">
+      <div class="step-dot active" id="dot-1" aria-label="Step 1 of 3"></div>
+      <div class="step-dot"        id="dot-2" aria-label="Step 2 of 3"></div>
+      <div class="step-dot"        id="dot-3" aria-label="Step 3 of 3"></div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────────── -->
+    <!-- STEP 1: Profile setup                               -->
+    <!-- ─────────────────────────────────────────────────── -->
+    <div class="step-panel active" id="step-1">
+
+      <h1 class="auth-title">Set up your profile</h1>
+      <p class="auth-subtitle">How should teammates see you in Orbit?</p>
+
+      <!-- Avatar -->
+      <div class="avatar-wrap">
+        <div
+          class="avatar-circle-upload"
+          id="avatar-btn"
+          role="button"
+          tabindex="0"
+          aria-label="Upload profile photo"
+          data-track="onboarding_avatar_click"
+        >
+          <span id="avatar-initials">?</span>
+          <div
+            id="avatar-hover"
+            style="position:absolute;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;border-radius:50%;"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+          </div>
+        </div>
+        <span class="avatar-upload-hint">Click to upload photo</span>
+      </div>
+
+      <div id="alert-1" class="alert alert-error" style="display:none;" role="alert"></div>
+
+      <form id="form-1" novalidate>
+        <div class="form-group">
+          <label for="display-name">Display name</label>
+          <input
+            type="text"
+            id="display-name"
+            name="displayName"
+            autocomplete="nickname"
+            placeholder="Jane Smith"
+            data-track-field="display_name"
+          >
+          <span class="field-error" id="err-display-name"></span>
+        </div>
+
+        <div class="form-group">
+          <label for="username">Username</label>
+          <div class="input-wrapper">
+            <input
+              type="text"
+              id="username"
+              name="username"
+              autocomplete="username"
+              placeholder="janesmith"
+              style="padding-left: 28px;"
+              data-track-field="username"
+            >
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted);pointer-events:none;">@</span>
+          </div>
+          <span class="field-error" id="err-username"></span>
+        </div>
+
+        <button type="submit" id="btn-1" class="btn btn-primary" style="margin-top:4px;">
+          Continue
+        </button>
+      </form>
+
+    </div>
+
+    <!-- ─────────────────────────────────────────────────── -->
+    <!-- STEP 2: Role selection                              -->
+    <!-- ─────────────────────────────────────────────────── -->
+    <div class="step-panel" id="step-2">
+
+      <button type="button" class="skip-link" id="skip-2" data-track="onboarding_step2_skip">
+        Skip
+      </button>
+
+      <h1 class="auth-title">What best describes you?</h1>
+      <p class="auth-subtitle">We'll tailor your experience to fit your workflow.</p>
+
+      <div class="role-grid" id="role-grid">
+        <div class="role-card" data-role="developer" tabindex="0" role="button" aria-pressed="false">
+          <div class="role-icon">💻</div>
+          <div class="role-label">Developer</div>
+        </div>
+        <div class="role-card" data-role="designer" tabindex="0" role="button" aria-pressed="false">
+          <div class="role-icon">🎨</div>
+          <div class="role-label">Designer</div>
+        </div>
+        <div class="role-card" data-role="product" tabindex="0" role="button" aria-pressed="false">
+          <div class="role-icon">📋</div>
+          <div class="role-label">Product</div>
+        </div>
+        <div class="role-card" data-role="manager" tabindex="0" role="button" aria-pressed="false">
+          <div class="role-icon">📊</div>
+          <div class="role-label">Manager</div>
+        </div>
+        <div class="role-card" data-role="marketing" tabindex="0" role="button" aria-pressed="false">
+          <div class="role-icon">📣</div>
+          <div class="role-label">Marketing</div>
+        </div>
+        <div class="role-card" data-role="other" tabindex="0" role="button" aria-pressed="false">
+          <div class="role-icon">✨</div>
+          <div class="role-label">Other</div>
+        </div>
+      </div>
+
+      <button type="button" id="btn-2" class="btn btn-primary">
+        Continue
+      </button>
+
+    </div>
+
+    <!-- ─────────────────────────────────────────────────── -->
+    <!-- STEP 3: Preferences / completion                    -->
+    <!-- ─────────────────────────────────────────────────── -->
+    <div class="step-panel" id="step-3">
+
+      <button type="button" class="skip-link" id="skip-3" data-track="onboarding_step3_skip">
+        Skip
+      </button>
+
+      <div class="completion-icon" aria-hidden="true">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6L9 17l-5-5"/>
+        </svg>
+      </div>
+
+      <h1 class="auth-title" style="margin-bottom:6px;">Almost there!</h1>
+      <p class="auth-subtitle">Choose your notification preferences to get started.</p>
+
+      <!-- Preferences -->
+      <div id="prefs" style="margin-bottom:20px;">
+
+        <div class="pref-row">
+          <div>
+            <div class="pref-label">Email notifications</div>
+            <div class="pref-sub">Updates on tasks, mentions &amp; comments</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="pref-email" checked data-pref="email_notifications">
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+
+        <div class="pref-row">
+          <div>
+            <div class="pref-label">Weekly digest</div>
+            <div class="pref-sub">Summary of your team's activity each Monday</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="pref-digest" checked data-pref="weekly_digest">
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+
+        <div class="pref-row">
+          <div>
+            <div class="pref-label">Marketing updates</div>
+            <div class="pref-sub">Tips, product news and feature announcements</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="pref-marketing" data-pref="marketing_emails">
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+
+      </div>
+
+      <button type="button" id="btn-3" class="btn btn-primary">
+        Go to Orbit
+      </button>
+
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // ── Page tracking ──────────────────────────────────────────
+    Track.page('Onboarding', { path: 'onboarding.html', step: 1 });
+    Track.event('onboarding_step_view', { step: 1 });
+
+    // ── Pre-fill display name from Proto user ─────────────────
+    const user = Proto.getUser();
+    if (user) {
+      if (user.name) {
+        document.getElementById('display-name').value = user.name;
+        // Derive initials for avatar
+        const parts = user.name.trim().split(' ');
+        const initials = parts.length >= 2
+          ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+          : user.name.slice(0, 2).toUpperCase();
+        document.getElementById('avatar-initials').textContent = initials;
+      }
+    }
+
+    // ── Avatar hover effect ────────────────────────────────────
+    const avatarBtn  = document.getElementById('avatar-btn');
+    const avatarHov  = document.getElementById('avatar-hover');
+
+    avatarBtn.addEventListener('mouseenter', () => { avatarHov.style.display = 'flex'; });
+    avatarBtn.addEventListener('mouseleave', () => { avatarHov.style.display = 'none'; });
+
+    avatarBtn.addEventListener('click', () => {
+      Track.event('onboarding_avatar_click');
+      // Prototype: no actual upload — just visual feedback
+      avatarHov.style.display = 'none';
+    });
+
+    // ── Step helpers ───────────────────────────────────────────
+    let currentStep = 1;
+    const totalSteps = 3;
+
+    function showStep(n) {
+      // Hide all panels
+      for (let i = 1; i <= totalSteps; i++) {
+        document.getElementById('step-' + i).classList.remove('active');
+        const dot = document.getElementById('dot-' + i);
+        dot.classList.remove('active', 'done');
+        if (i < n)       dot.classList.add('done');
+        if (i === n)     dot.classList.add('active');
+      }
+
+      document.getElementById('step-' + n).classList.add('active');
+      currentStep = n;
+
+      Track.event('onboarding_step_view', { step: n });
+      // Scroll to top of card
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // ── Step 1: Profile ────────────────────────────────────────
+    // Field focus tracking
+    ['display-name', 'username'].forEach(id => {
+      document.getElementById(id).addEventListener('focus', () => {
+        Track.event('onboarding_field_focus', { field: id });
+      });
+    });
+
+    // Live avatar initials from display name
+    document.getElementById('display-name').addEventListener('input', e => {
+      const parts = e.target.value.trim().split(' ');
+      if (parts[0]) {
+        const initials = parts.length >= 2
+          ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+          : parts[0].slice(0, 2).toUpperCase();
+        document.getElementById('avatar-initials').textContent = initials;
+      } else {
+        document.getElementById('avatar-initials').textContent = '?';
+      }
+    });
+
+    document.getElementById('form-1').addEventListener('submit', e => {
+      e.preventDefault();
+
+      const nameVal = document.getElementById('display-name').value.trim();
+      const userVal = document.getElementById('username').value.trim();
+
+      clearFieldErrors(e.target);
+      document.getElementById('alert-1').style.display = 'none';
+
+      let valid = true;
+
+      if (!nameVal) {
+        showFieldError(
+          document.getElementById('display-name'),
+          document.getElementById('err-display-name'),
+          'Please enter a display name.'
+        );
+        valid = false;
+      }
+
+      if (!valid) return;
+
+      Track.event('onboarding_step1_continue', { has_username: !!userVal });
+
+      const btn = document.getElementById('btn-1');
+      btnLoading(btn, true);
+
+      setTimeout(() => {
+        btnLoading(btn, false);
+        showStep(2);
+      }, 500);
+    });
+
+    // ── Step 2: Role selection ─────────────────────────────────
+    let selectedRole = null;
+
+    document.querySelectorAll('.role-card').forEach(card => {
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.role-card').forEach(c => {
+          c.classList.remove('selected');
+          c.setAttribute('aria-pressed', 'false');
+        });
+        card.classList.add('selected');
+        card.setAttribute('aria-pressed', 'true');
+        selectedRole = card.dataset.role;
+        Track.event('onboarding_role_select', { role: selectedRole });
+      });
+
+      card.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+      });
+    });
+
+    document.getElementById('btn-2').addEventListener('click', () => {
+      Track.event('onboarding_step2_continue', { role: selectedRole || 'skipped' });
+
+      const btn = document.getElementById('btn-2');
+      btnLoading(btn, true);
+
+      setTimeout(() => {
+        btnLoading(btn, false);
+        showStep(3);
+      }, 500);
+    });
+
+    document.getElementById('skip-2').addEventListener('click', () => {
+      Track.event('onboarding_step2_skip');
+      showStep(3);
+    });
+
+    // ── Step 3: Preferences ────────────────────────────────────
+    document.querySelectorAll('[data-pref]').forEach(input => {
+      input.addEventListener('change', () => {
+        Track.event('onboarding_pref_toggle', {
+          pref: input.dataset.pref,
+          value: input.checked,
+        });
+      });
+    });
+
+    document.getElementById('btn-3').addEventListener('click', () => {
+      const prefs = {};
+      document.querySelectorAll('[data-pref]').forEach(input => {
+        prefs[input.dataset.pref] = input.checked;
+      });
+
+      Track.event('onboarding_step3_continue', { prefs });
+
+      const btn = document.getElementById('btn-3');
+      btnLoading(btn, true);
+
+      setTimeout(() => {
+        Track.event('onboarding_complete');
+        Proto.go('dashboard.html');
+      }, 700);
+    });
+
+    document.getElementById('skip-3').addEventListener('click', () => {
+      Track.event('onboarding_step3_skip');
+      Track.event('onboarding_complete', { skipped_prefs: true });
+      Proto.go('dashboard.html');
+    });
+  </script>
+
+</body>
+</html>

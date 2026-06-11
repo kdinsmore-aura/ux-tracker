@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orbit — Work together, effortlessly</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TRACKING POINTS ON THIS PAGE
+       • page_view          — on load (fires automatically below)
+       • cta_signup_click   — "Create free account" button
+       • cta_signin_click   — "Sign in" button
+  ═══════════════════════════════════════════════════════════ -->
+
+  <div class="landing-card" data-track-section="landing">
+
+    <!-- Logo -->
+    <a href="index.html" class="logo" style="margin-bottom:36px;">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <rect width="28" height="28" rx="7" fill="#18181B"/>
+        <circle cx="14" cy="14" r="5.5" stroke="white" stroke-width="2"/>
+        <circle cx="14" cy="14" r="1.75" fill="white"/>
+      </svg>
+      <span class="logo-name">Orbit</span>
+    </a>
+
+    <p class="landing-tagline">Work together,<br>effortlessly.</p>
+    <p class="landing-sub">The workspace that keeps your team in sync — from kickoff to completion.</p>
+
+    <div class="landing-actions">
+
+      <!-- TRACKING: cta_signup_click -->
+      <a
+        id="btn-create-account"
+        href="signup.html"
+        class="btn btn-primary"
+        data-track="cta_signup_click"
+      >
+        Create free account
+      </a>
+
+      <div class="landing-divider">
+        <div class="landing-divider-line"></div>
+        <span class="landing-divider-text">or</span>
+        <div class="landing-divider-line"></div>
+      </div>
+
+      <!-- TRACKING: cta_signin_click -->
+      <a
+        id="btn-sign-in"
+        href="signin.html"
+        class="btn btn-outline"
+        data-track="cta_signin_click"
+      >
+        Sign in
+      </a>
+
+    </div>
+
+    <p style="margin-top:24px;font-size:12px;color:var(--muted);line-height:1.5;">
+      By continuing you agree to our
+      <a href="#" class="link-muted" style="font-weight:500;">Terms</a>
+      and
+      <a href="#" class="link-muted" style="font-weight:500;">Privacy Policy</a>.
+    </p>
+
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // ── Page tracking ──────────────────────────────────────────
+    Track.page('Landing', { path: 'index.html' });
+
+    // ── CTA click tracking ─────────────────────────────────────
+    document.querySelectorAll('[data-track]').forEach(el => {
+      el.addEventListener('click', () => {
+        Track.event(el.dataset.track, { from: 'landing' });
+      });
+    });
+  </script>
+
+</body>
+</html>

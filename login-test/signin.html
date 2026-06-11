@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in — Orbit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TRACKING POINTS ON THIS PAGE
+       • page_view               — on load
+       • signin_oauth_google     — "Continue with Google" click
+       • signin_oauth_apple      — "Continue with Apple" click
+       • signin_email_focus      — email field first focused
+       • signin_email_entered    — valid email on blur
+       • signin_password_focus   — password field focused
+       • signin_forgot_click     — "Forgot password?" link
+       • signin_submit_attempt   — Sign in button click
+       • signin_submit_error     — validation failed (with reason)
+       • signin_submit_success   — proceeding to 2FA / dashboard
+       • signin_goto_signup      — "Create account" link clicked
+  ═══════════════════════════════════════════════════════════ -->
+
+  <!-- Success banner (shown if returning from password reset) -->
+  <div
+    id="reset-banner"
+    class="alert alert-success"
+    style="display:none; width:100%; max-width:400px; margin-bottom:12px;"
+    role="alert"
+  >
+    ✓ Password updated — sign in with your new password.
+  </div>
+
+  <div class="auth-card" data-track-section="signin_form">
+
+    <!-- Logo -->
+    <a href="index.html" class="logo">
+      <svg width="26" height="26" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <rect width="28" height="28" rx="7" fill="#18181B"/>
+        <circle cx="14" cy="14" r="5.5" stroke="white" stroke-width="2"/>
+        <circle cx="14" cy="14" r="1.75" fill="white"/>
+      </svg>
+      <span class="logo-name">Orbit</span>
+    </a>
+
+    <h1 class="auth-title">Welcome back</h1>
+    <p class="auth-subtitle">Sign in to your Orbit account.</p>
+
+    <!-- OAuth -->
+    <a
+      id="btn-google"
+      href="#"
+      class="btn-oauth btn-google"
+      data-track="signin_oauth_google"
+      role="button"
+    >
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+        <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
+        <path d="M3.964 10.706A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" fill="#FBBC05"/>
+        <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+      </svg>
+      Continue with Google
+    </a>
+
+    <a
+      id="btn-apple"
+      href="#"
+      class="btn-oauth btn-apple"
+      data-track="signin_oauth_apple"
+      role="button"
+    >
+      <svg width="16" height="16" viewBox="0 0 30 30" aria-hidden="true" fill="white">
+        <path d="M25.565,9.785c-0.123,0.077-3.051,1.702-3.051,5.305c0.138,4.109,3.695,5.55,3.756,5.55c-0.061,0.077-0.537,1.963-1.947,3.94C23.204,26.283,21.962,28,20.076,28c-1.794,0-2.438-1.135-4.508-1.135c-2.223,0-2.852,1.135-4.554,1.135c-1.886,0-3.22-1.809-4.4-3.496c-1.533-2.208-2.836-5.673-2.882-9c-0.031-1.763,0.307-3.496,1.165-4.968c1.211-2.055,3.373-3.45,5.734-3.496c1.809-0.061,3.419,1.242,4.523,1.242c1.058,0,3.036-1.242,5.274-1.242C21.394,7.041,23.97,7.332,25.565,9.785z M15.001,6.688c-0.322-1.61,0.567-3.22,1.395-4.247c1.058-1.242,2.729-2.085,4.17-2.085c0.092,1.61-0.491,3.189-1.533,4.339C18.098,5.937,16.488,6.872,15.001,6.688z"/>
+      </svg>
+      Continue with Apple
+    </a>
+
+    <!-- Divider -->
+    <div class="divider">
+      <div class="divider-line"></div>
+      <span class="divider-text">or sign in with email</span>
+      <div class="divider-line"></div>
+    </div>
+
+    <!-- Alert -->
+    <div id="alert" class="alert alert-error" style="display:none;" role="alert"></div>
+
+    <!-- Sign in form -->
+    <form id="signin-form" novalidate>
+
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          autocomplete="email"
+          placeholder="jane@company.com"
+          data-track-field="email"
+        >
+        <span class="field-error" id="err-email"></span>
+      </div>
+
+      <div class="form-group">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+          <label for="password" style="margin-bottom:0;">Password</label>
+          <!-- TRACKING: signin_forgot_click -->
+          <a
+            href="forgot-password.html"
+            id="btn-forgot"
+            class="link-muted"
+            style="font-size:13px;"
+            data-track="signin_forgot_click"
+          >Forgot password?</a>
+        </div>
+        <div class="input-wrapper">
+          <input
+            type="password"
+            id="password"
+            name="password"
+            autocomplete="current-password"
+            placeholder="Enter your password"
+            data-track-field="password"
+          >
+          <button type="button" class="toggle-password" id="toggle-pw" aria-label="Show password" tabindex="-1">
+            <svg id="icon-eye" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <svg id="icon-eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+              <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>
+          </button>
+        </div>
+        <span class="field-error" id="err-password"></span>
+      </div>
+
+      <!-- Remember me + 2FA toggle -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
+        <label class="check-group" style="margin-bottom:0;">
+          <input type="checkbox" id="remember-me" name="rememberMe">
+          <span style="font-size:13px;color:var(--text-sec);">Remember this device</span>
+        </label>
+
+        <label class="check-group" style="margin-bottom:0;">
+          <input type="checkbox" id="use-2fa" name="use2fa" checked>
+          <span style="font-size:13px;color:var(--text-sec);">Use 2-step verification</span>
+        </label>
+      </div>
+
+      <!-- TRACKING: signin_submit_attempt -->
+      <button
+        type="submit"
+        id="btn-submit"
+        class="btn btn-primary"
+        data-track="signin_submit_attempt"
+      >
+        Sign in
+      </button>
+
+    </form>
+
+    <p class="auth-footer">
+      Don't have an account?
+      <a href="signup.html" data-track="signin_goto_signup">Create account</a>
+    </p>
+
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // ── Page tracking ──────────────────────────────────────────
+    Track.page('Sign In', { path: 'signin.html' });
+
+    // Show "password reset success" banner if redirected from reset flow
+    if (Proto.param('reset') === 'success') {
+      document.getElementById('reset-banner').style.display = 'block';
+    }
+
+    // ── OAuth ──────────────────────────────────────────────────
+    document.getElementById('btn-google').addEventListener('click', e => {
+      e.preventDefault();
+      Track.event('signin_oauth_google');
+      Proto.go('dashboard.html', { auth: 'google' });
+    });
+
+    document.getElementById('btn-apple').addEventListener('click', e => {
+      e.preventDefault();
+      Track.event('signin_oauth_apple');
+      Proto.go('dashboard.html', { auth: 'apple' });
+    });
+
+    // ── Forgot password link ───────────────────────────────────
+    document.getElementById('btn-forgot').addEventListener('click', () => {
+      Track.event('signin_forgot_click');
+    });
+
+    // ── Field tracking ─────────────────────────────────────────
+    let emailFocused = false;
+    document.getElementById('email').addEventListener('focus', () => {
+      if (!emailFocused) {
+        emailFocused = true;
+        Track.event('signin_email_focus');
+      }
+    });
+
+    document.getElementById('email').addEventListener('blur', e => {
+      if (isEmail(e.target.value)) {
+        Track.event('signin_email_entered', { domain: e.target.value.split('@')[1] });
+      }
+    });
+
+    let pwFocused = false;
+    document.getElementById('password').addEventListener('focus', () => {
+      if (!pwFocused) {
+        pwFocused = true;
+        Track.event('signin_password_focus');
+      }
+    });
+
+    // ── Show/hide password ─────────────────────────────────────
+    document.getElementById('toggle-pw').addEventListener('click', () => {
+      const input = document.getElementById('password');
+      const isHidden = input.type === 'password';
+      input.type = isHidden ? 'text' : 'password';
+      document.getElementById('icon-eye').style.display     = isHidden ? 'none' : '';
+      document.getElementById('icon-eye-off').style.display = isHidden ? ''     : 'none';
+    });
+
+    // ── Form submit ────────────────────────────────────────────
+    document.getElementById('signin-form').addEventListener('submit', e => {
+      e.preventDefault();
+
+      const emailVal = document.getElementById('email').value.trim();
+      const pwVal    = document.getElementById('password').value;
+      const use2fa   = document.getElementById('use-2fa').checked;
+
+      clearFieldErrors(e.target);
+      document.getElementById('alert').style.display = 'none';
+
+      let valid = true;
+
+      if (!isEmail(emailVal)) {
+        showFieldError(
+          document.getElementById('email'),
+          document.getElementById('err-email'),
+          'Please enter a valid email address.'
+        );
+        valid = false;
+      }
+
+      if (!pwVal) {
+        showFieldError(
+          document.getElementById('password'),
+          document.getElementById('err-password'),
+          'Please enter your password.'
+        );
+        valid = false;
+      }
+
+      if (!valid) {
+        Track.event('signin_submit_error', { reason: 'validation_failed' });
+        return;
+      }
+
+      Track.event('signin_submit_attempt', { use_2fa: use2fa });
+      const btn = document.getElementById('btn-submit');
+      btnLoading(btn, true);
+
+      Proto.setUser({ email: emailVal });
+
+      setTimeout(() => {
+        Track.event('signin_submit_success', { use_2fa: use2fa });
+
+        if (use2fa) {
+          // Go to verification
+          Proto.go('verify.html', {
+            context: 'signin',
+            method: 'email',
+            target: maskEmail(emailVal),
+          });
+        } else {
+          // Skip 2FA, go straight to dashboard
+          Proto.go('dashboard.html');
+        }
+      }, 800);
+    });
+
+    // ── Footer link tracking ───────────────────────────────────
+    document.querySelector('[data-track="signin_goto_signup"]')
+      .addEventListener('click', () => Track.event('signin_goto_signup'));
+  </script>
+
+</body>
+</html>
