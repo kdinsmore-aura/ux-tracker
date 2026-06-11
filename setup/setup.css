@@ -928,6 +928,100 @@ input[type="number"].input { max-width: 120px; }
 }
 
 
+/* ── Snippet Panel (right sidebar) ─────────────────────────────────────────── */
+
+.snippet-panel {
+  width: 268px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.snippet-panel-head {
+  padding: 20px 16px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.snippet-panel-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.snippet-panel-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.snippet-panel-empty {
+  padding: 24px 16px;
+}
+
+.snippet-panel-empty p {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+.snippet-panel-section {
+  padding: 16px 16px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.snippet-panel-section:last-child {
+  border-bottom: none;
+}
+
+.snippet-panel-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+
+.snippet-label-sub {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-3);
+}
+
+.snippet-panel .snippet-body {
+  font-size: 10.5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.snippet-panel-desc {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.5;
+  margin: 6px 0 14px;
+}
+
+.snippet-panel-desc code {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--subtle);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+
 /* ── Responsive ─────────────────────────────────────────────────────────────── */
 
 @media (max-width: 700px) {
@@ -965,5 +1059,13 @@ input[type="number"].input { max-width: 120px; }
 
   .main {
     padding: 24px 20px;
+  }
+
+  .snippet-panel {
+    width: 100%;
+    height: auto;
+    position: static;
+    border-left: none;
+    border-top: 1px solid var(--border);
   }
 }

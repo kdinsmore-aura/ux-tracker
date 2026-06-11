@@ -350,7 +350,13 @@ function setupApp() {
             .update({ ...payload, updated_at: new Date().toISOString() })
             .eq('id', this.studyId);
           if (error) throw error;
-          await this._goto(1);
+          this.study = { ...(this.study || {}), ...payload };
+          // If no path has been recorded yet, continue setup; otherwise return to list
+          if (this.study.ideal_path?.length > 0) {
+            await this._goto(1);
+          } else {
+            await this._goto(3);
+          }
         } else {
           const { data, error } = await this._db
             .from('studies')

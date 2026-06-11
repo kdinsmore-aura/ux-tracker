@@ -482,53 +482,6 @@
 
         <div class="divider"></div>
 
-        <!-- Script snippet -->
-        <p class="section-label">Tracker Script — add this to your prototype page</p>
-
-        <p style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted,#6b7280);margin:0 0 6px">
-          MINIMAL<span style="font-weight:400;text-transform:none;letter-spacing:0"> — recommended for most prototypes</span>
-        </p>
-        <div class="snippet-wrap">
-          <div class="snippet-head">
-            <span>HTML</span>
-            <button class="btn btn-ghost btn-xs"
-                    style="color:#9CA3AF"
-                    @click="copySnippetMinimal()">
-              <span x-show="!copiedSnippetMinimal">Copy</span>
-              <span class="copied-tip" x-show="copiedSnippetMinimal">Copied!</span>
-            </button>
-          </div>
-          <pre class="snippet-body" x-text="scriptSnippetMinimal"></pre>
-        </div>
-        <p class="hint">
-          The study ID is passed automatically via URL params during recording
-          and participant sessions. Use the hardcoded version only if you want
-          the same study active on every page load regardless of URL params.
-        </p>
-
-        <p style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted,#6b7280);margin:16px 0 6px">
-          WITH HARDCODED STUDY<span style="font-weight:400;text-transform:none;letter-spacing:0"> — optional, for single-study prototypes</span>
-        </p>
-        <div class="snippet-wrap">
-          <div class="snippet-head">
-            <span>HTML</span>
-            <button class="btn btn-ghost btn-xs"
-                    style="color:#9CA3AF"
-                    @click="copySnippetFull()">
-              <span x-show="!copiedSnippetFull">Copy</span>
-              <span class="copied-tip" x-show="copiedSnippetFull">Copied!</span>
-            </button>
-          </div>
-          <pre class="snippet-body" x-text="scriptSnippetFull"></pre>
-        </div>
-        <p class="hint">
-          Place this tag just before <code>&lt;/body&gt;</code> on your prototype page.
-          Participants reach the session via the invite URL above; it supplies the
-          <code>study</code> and <code>participant</code> query params the tracker needs.
-        </p>
-
-        <div class="divider"></div>
-
         <div class="btn-row">
           <button class="btn btn-primary" @click="openDashboard()">
             View Dashboard →
@@ -542,6 +495,53 @@
 
 
     </main><!-- /main -->
+
+
+    <!-- ── Snippet Panel (right) ──────────────────────────────────────────── -->
+    <aside class="snippet-panel">
+      <div class="snippet-panel-head">
+        <span class="snippet-panel-title">Tracker Script</span>
+        <span class="snippet-panel-hint">Embed in your prototype page</span>
+      </div>
+
+      <div class="snippet-panel-empty" x-show="!studyId">
+        <p>Save your study first — your embed code will appear here once it's created.</p>
+      </div>
+
+      <div x-show="studyId">
+        <div class="snippet-panel-section">
+          <p class="snippet-panel-label">MINIMAL <span class="snippet-label-sub">— recommended</span></p>
+          <div class="snippet-wrap">
+            <div class="snippet-head">
+              <span>HTML</span>
+              <button class="btn btn-ghost btn-xs" style="color:#9CA3AF" @click="copySnippetMinimal()">
+                <span x-show="!copiedSnippetMinimal">Copy</span>
+                <span class="copied-tip" x-show="copiedSnippetMinimal">Copied!</span>
+              </button>
+            </div>
+            <pre class="snippet-body" x-text="scriptSnippetMinimal"></pre>
+          </div>
+          <p class="snippet-panel-desc">Study ID flows in via URL params during recording and participant sessions.</p>
+        </div>
+
+        <div class="snippet-panel-section">
+          <p class="snippet-panel-label">WITH STUDY ID <span class="snippet-label-sub">— hardcoded</span></p>
+          <div class="snippet-wrap">
+            <div class="snippet-head">
+              <span>HTML</span>
+              <button class="btn btn-ghost btn-xs" style="color:#9CA3AF" @click="copySnippetFull()">
+                <span x-show="!copiedSnippetFull">Copy</span>
+                <span class="copied-tip" x-show="copiedSnippetFull">Copied!</span>
+              </button>
+            </div>
+            <pre class="snippet-body" x-text="scriptSnippetFull"></pre>
+          </div>
+          <p class="snippet-panel-desc">Place just before <code>&lt;/body&gt;</code> on your prototype page.</p>
+        </div>
+      </div>
+    </aside><!-- /snippet-panel -->
+
+
   </div><!-- /app-wrap -->
 
 
