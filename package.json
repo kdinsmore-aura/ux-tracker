@@ -9,7 +9,7 @@
     "build:watch": "node build.js --watch",
     "dev": "concurrently \"node build.js --watch\" \"npx serve .\"",
     "lint": "npx eslint src/",
-    "deploy:functions": "supabase functions deploy ux-tracker-ingest --no-verify-jwt"
+    "deploy:functions": "npx supabase@latest functions deploy ux-tracker-ingest --no-verify-jwt"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
@@ -18,7 +18,6 @@
   "devDependencies": {
     "concurrently": "latest",
     "cross-env": "latest",
-    "esbuild": "latest",
-    "supabase": "latest"
+    "esbuild": "latest"
   }
 }
