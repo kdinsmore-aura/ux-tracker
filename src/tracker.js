@@ -176,6 +176,10 @@ export function getElementSelector(element) {
   return clip(tag);
 }
 
+// Clicks on tracker UI components must never appear in the recorded path or event stream.
+// Closed shadow DOM retargets clicks inside the panel to the host element, so tagName is enough.
+const _UXT_COMPONENTS = new Set(['uxt-recorder-panel', 'uxt-task-panel']);
+
 /**
  * Attach a single capturing click listener on document.
  * Fires onClickCallback with enriched coordinate and element metadata.
@@ -184,6 +188,7 @@ export function getElementSelector(element) {
 export function startClickCapture(onClickCallback) {
   _clickListener = (event) => {
     const el = event.target;
+    if (_UXT_COMPONENTS.has(el.tagName?.toLowerCase())) return;
     onClickCallback({
       ...captureClickCoordinates(event),
       elementSelector: getElementSelector(el),
