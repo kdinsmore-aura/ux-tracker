@@ -1,3 +1,4 @@
+import { PARTICIPANT_SESSION_KEY } from './utils/config.js';
 import { computeScreenId } from './utils/screen-id.js';
 import {
   fetchParticipant,
@@ -330,6 +331,7 @@ async function _completeSession() {
   }).catch((err) => console.error('[UXTracker Participant] updateSession (complete) error:', err));
 
   clearSessionState(_participantId);
+  try { sessionStorage.removeItem(PARTICIPANT_SESSION_KEY); } catch {}
 
   if (typeof _config.onComplete === 'function') {
     try {
@@ -515,10 +517,17 @@ export default async function initParticipant(config, study) {
   _config = config;
   _study  = study;
 
-  // 1. Extract participantId from URL params
-  const params        = new URLSearchParams(window.location.search);
-  const participantId = params.get('participant');
-  const studyId       = params.get('study') ?? config.studyId;
+  // 1. Extract participantId from URL params; fall back to sessionStorage on page 2+
+  const params = new URLSearchParams(window.location.search);
+  let participantId = params.get('participant');
+  const studyId = params.get('study') ?? config.studyId;
+
+  if (!participantId) {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(PARTICIPANT_SESSION_KEY) || 'null');
+      participantId = saved?.participantId ?? null;
+    } catch {}
+  }
 
   // 2. Validate participant
   let participant;

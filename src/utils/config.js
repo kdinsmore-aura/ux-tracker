@@ -101,6 +101,9 @@ export const CONFIG_VERSION = '1';
 // sessionStorage key used to persist recording mode across page navigations.
 export const RECORDING_SESSION_KEY = 'uxt_rec_session';
 
+// sessionStorage key used to persist participant session across page navigations.
+export const PARTICIPANT_SESSION_KEY = 'uxt_part_session';
+
 const DEFAULTS = {
   mode: 'auto',
   screenshotDelay: 600,
@@ -290,20 +293,31 @@ export default function resolveConfig() {
     merged.mode = resolveAutoMode();
   }
 
-  // ── Recording session persistence ──────────────────────────────────────────
-  // When ?mode=record is detected, save to sessionStorage so subsequent pages
-  // in the same tab continue in record mode without needing URL params.
-  // When mode resolves to idle, check for a saved recording session.
+  // ── Session persistence ────────────────────────────────────────────────────
+  // Save mode + study/participant context to sessionStorage on the entry page
+  // so subsequent pages in the same tab continue in the correct mode without
+  // needing URL params or data-study on every page.
   try {
     if (merged.mode === 'record') {
       sessionStorage.setItem(RECORDING_SESSION_KEY, JSON.stringify({
         mode: 'record', studyId: merged.studyId || null,
       }));
+    } else if (merged.mode === 'participant') {
+      const participantId = new URLSearchParams(window.location.search).get('participant');
+      sessionStorage.setItem(PARTICIPANT_SESSION_KEY, JSON.stringify({
+        mode: 'participant', studyId: merged.studyId || null, participantId,
+      }));
     } else if (merged.mode === 'idle') {
-      const saved = JSON.parse(sessionStorage.getItem(RECORDING_SESSION_KEY) || 'null');
-      if (saved?.mode === 'record') {
+      const savedRec = JSON.parse(sessionStorage.getItem(RECORDING_SESSION_KEY) || 'null');
+      if (savedRec?.mode === 'record') {
         merged.mode = 'record';
-        if (!merged.studyId && saved.studyId) merged.studyId = saved.studyId;
+        if (!merged.studyId && savedRec.studyId) merged.studyId = savedRec.studyId;
+      } else {
+        const savedPart = JSON.parse(sessionStorage.getItem(PARTICIPANT_SESSION_KEY) || 'null');
+        if (savedPart?.mode === 'participant') {
+          merged.mode = 'participant';
+          if (!merged.studyId && savedPart.studyId) merged.studyId = savedPart.studyId;
+        }
       }
     }
   } catch (_) {
