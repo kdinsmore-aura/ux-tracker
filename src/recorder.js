@@ -38,6 +38,7 @@ const _state = {
   studyId: '',
   idealPath: [],
   capturedScreens: new Map(),
+  pendingShots: [],
   currentStepIndex: 0,
   isRecording: false,
   sessionStartTime: 0,
@@ -71,41 +72,69 @@ function scrollToTopAndWait(ms) {
 
 // ─── Screen capture pipeline ──────────────────────────────────────────────────
 
+// Rasterise the current viewport to an image Blob. html2canvas clones the DOM
+// synchronously at call time, so the Blob reflects the screen exactly as it
+// looked when this was invoked — even if the page navigates a moment later.
+async function _renderViewportBlob() {
+  let canvas;
+  try {
+    canvas = await html2canvas(document.body, {
+      useCORS: true,
+      allowTaint: false,
+      scale: 1,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      windowWidth: window.innerWidth,
+      windowHeight: window.innerHeight,
+    });
+  } catch (err) {
+    console.error('[UXTracker Recorder] html2canvas failed:', err);
+    return null;
+  }
+  if (!canvas) return null;
+  const mimeType = _config.screenshotFormat === 'jpeg' ? 'image/jpeg' : 'image/png';
+  return await new Promise(resolve => canvas.toBlob(resolve, mimeType));
+}
+
+// Capture a per-step screenshot of the screen as it looks at click time and
+// attach its URL to the step. Each step gets its own file (keyed by step index)
+// so in-page view changes that never alter the URL — e.g. a multi-step wizard
+// toggling CSS classes — still produce a distinct screenshot per step. Runs
+// fire-and-forget; the promise is tracked so _saveAndFinish can await it.
+function _captureForStep(step) {
+  const screenId = computeScreenId(_config.screens);
+  const p = (async () => {
+    const blob = await _renderViewportBlob();
+    if (!blob) return;
+    try {
+      step.screenshotUrl = await uploadScreenshot(
+        _state.studyId, `step-${step.stepIndex}-${screenId}`, blob,
+      );
+      _savePath(_state.idealPath);
+    } catch (err) {
+      console.error('[UXTracker Recorder] Step screenshot upload failed:', err);
+    }
+  })();
+  _state.pendingShots.push(p);
+  return p;
+}
+
 async function captureCurrentScreen() {
   const screenId = computeScreenId(_config.screens);
 
   // Run html2canvas and DOM fingerprint in parallel
-  const [canvas, hash] = await Promise.all([
-    (async () => {
-      try {
-        return await html2canvas(document.body, {
-          useCORS: true,
-          allowTaint: false,
-          scale: 1,
-          width: window.innerWidth,
-          height: window.innerHeight,
-          windowWidth: window.innerWidth,
-          windowHeight: window.innerHeight,
-        });
-      } catch (err) {
-        console.error('[UXTracker Recorder] html2canvas failed:', err);
-        return null;
-      }
-    })(),
+  const [blob, hash] = await Promise.all([
+    _renderViewportBlob(),
     computePageFingerprint(),
   ]);
 
   let screenshotUrl = null;
 
-  if (canvas) {
-    const mimeType = _config.screenshotFormat === 'jpeg' ? 'image/jpeg' : 'image/png';
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, mimeType));
-    if (blob) {
-      try {
-        screenshotUrl = await uploadScreenshot(_state.studyId, screenId, blob);
-      } catch (err) {
-        console.error('[UXTracker Recorder] Screenshot upload failed:', err);
-      }
+  if (blob) {
+    try {
+      screenshotUrl = await uploadScreenshot(_state.studyId, screenId, blob);
+    } catch (err) {
+      console.error('[UXTracker Recorder] Screenshot upload failed:', err);
     }
   }
 
@@ -331,6 +360,7 @@ class UxtRecorderPanel extends HTMLElement {
     _state.currentStepIndex += 1;
     _state.lastStepTime = now;
     _savePath(_state.idealPath);
+    _captureForStep(step);
     this.updateStepCount(_state.idealPath.length);
     this.addStepToLog(step);
   }
@@ -359,6 +389,25 @@ class UxtRecorderPanel extends HTMLElement {
     stopClickCapture();
     _state.isRecording = false;
     _clearRecordingSession();
+
+    // Capture the final screen the researcher ended on and attach it to the
+    // last step as a review-only "end" card. Deliberately NOT a new ideal_path
+    // step: participant completion is measured by ideal_path length, so an extra
+    // non-clickable step would make sessions impossible to finish.
+    try {
+      const blob = await _renderViewportBlob();
+      const last = _state.idealPath[_state.idealPath.length - 1];
+      if (blob && last) {
+        const screenId = computeScreenId(_config.screens);
+        last.endScreenshotUrl = await uploadScreenshot(_state.studyId, `end-${screenId}`, blob);
+        last.endScreenId = screenId;
+      }
+    } catch (err) {
+      console.error('[UXTracker Recorder] End screen capture failed:', err);
+    }
+
+    // Wait for any in-flight per-step screenshots before persisting the path.
+    await Promise.allSettled(_state.pendingShots);
 
     try {
       await updateStudyIdealPath(_state.studyId, _state.idealPath, 'active');
@@ -461,6 +510,8 @@ export default async function initRecorder(config, study) {
 
     _panel.updateStepCount(_state.idealPath.length);
     _panel.addStepToLog(step);
+
+    _captureForStep(step);
 
     const el = document.elementFromPoint(clickData.viewportX, clickData.viewportY);
     if (el) highlightElement(el);

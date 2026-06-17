@@ -424,6 +424,30 @@ const _PANEL_CSS = `
   #complete-body.open { display: flex; }
   #complete-msg { font-size: 14px; font-weight: 500; color: #15803d; line-height: 1.5; }
   #complete-time { font-size: 12px; color: #6c757d; }
+  #feedback { display: none; flex-direction: column; gap: 10px; margin-top: 4px; }
+  #feedback.show { display: flex; }
+  .fb-prompt { font-size: 13px; font-weight: 500; color: #1a1a2e; line-height: 1.4; }
+  .fb-stars { display: flex; gap: 4px; }
+  .fb-star {
+    background: none; border: none; padding: 0; cursor: pointer;
+    font-size: 26px; line-height: 1; color: #d1d5db; transition: color .1s;
+  }
+  .fb-star.filled { color: #f59e0b; }
+  #fb-comment {
+    width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px;
+    border: 1px solid #d1d5db; border-radius: 6px; padding: 8px;
+    font-family: inherit; font-size: 13px; color: #1a1a2e;
+  }
+  #fb-comment:focus { outline: none; border-color: #4f46e5; }
+  #fb-submit {
+    align-self: flex-start; padding: 7px 14px; border: none; border-radius: 6px;
+    background: #4f46e5; color: #fff; font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: opacity .15s;
+  }
+  #fb-submit:hover { opacity: .9; }
+  #fb-hint { font-size: 12px; color: #dc2626; display: none; }
+  #fb-hint.show { display: block; }
+  #fb-thanks { font-size: 13px; font-weight: 500; color: #15803d; display: none; }
 `;
 
 class UxtTaskPanel extends HTMLElement {
@@ -450,6 +474,25 @@ class UxtTaskPanel extends HTMLElement {
         <div id="complete-body">
           <div id="complete-msg">You've completed all tasks. Thank you!</div>
           <div id="complete-time"></div>
+          <div id="feedback">
+            <div id="fb-rating-wrap" style="display:none;">
+              <div id="fb-rating-prompt" class="fb-prompt"></div>
+              <div id="fb-stars" class="fb-stars" role="radiogroup" aria-label="Rating">
+                <button type="button" class="fb-star" data-value="1" aria-label="1 star">★</button>
+                <button type="button" class="fb-star" data-value="2" aria-label="2 stars">★</button>
+                <button type="button" class="fb-star" data-value="3" aria-label="3 stars">★</button>
+                <button type="button" class="fb-star" data-value="4" aria-label="4 stars">★</button>
+                <button type="button" class="fb-star" data-value="5" aria-label="5 stars">★</button>
+              </div>
+            </div>
+            <div id="fb-comment-wrap" style="display:none;">
+              <div id="fb-comment-prompt" class="fb-prompt"></div>
+              <textarea id="fb-comment" placeholder="Optional"></textarea>
+            </div>
+            <div id="fb-hint">Please add a rating before submitting.</div>
+            <button id="fb-submit" type="button">Submit feedback</button>
+            <div id="fb-thanks">Thanks for your feedback!</div>
+          </div>
         </div>
       </div>
     `;
@@ -495,6 +538,12 @@ class UxtTaskPanel extends HTMLElement {
   showComplete(durationMs) {
     this._completed = true;
     this._q('body').style.display = 'none';
+
+    // Custom thank-you message, with a generic fallback.
+    const cfg = (_study && _study.completion) || {};
+    const custom = cfg.thankYou && String(cfg.thankYou).trim();
+    this._q('complete-msg').textContent = custom || "You've completed all tasks. Thank you!";
+
     const totalSecs  = Math.round(durationMs / 1000);
     const mins       = Math.floor(totalSecs / 60);
     const secs       = totalSecs % 60;
@@ -507,7 +556,79 @@ class UxtTaskPanel extends HTMLElement {
       timeStr = `${secs} second${secs !== 1 ? 's' : ''}`;
     }
     this._q('complete-time').textContent = `Completed in ${timeStr}`;
+
+    this._setupFeedback(cfg);
     this._q('complete-body').classList.add('open');
+  }
+
+  // Wire up the optional rating/comment fields based on the study's config.
+  // The session is already marked complete by now, so this is purely additive.
+  _setupFeedback(cfg) {
+    const ratingOn  = !!(cfg.rating && cfg.rating.enabled);
+    const commentOn = !!(cfg.comment && cfg.comment.enabled);
+    if (!ratingOn && !commentOn) return;
+
+    this._rating   = 0;
+    this._required = !!cfg.required;
+
+    if (ratingOn) {
+      this._q('fb-rating-prompt').textContent =
+        (cfg.rating.prompt && cfg.rating.prompt.trim()) || 'How would you rate your experience?';
+      this._q('fb-rating-wrap').style.display = '';
+      this._shadow.querySelectorAll('.fb-star').forEach((star) => {
+        const val = Number(star.dataset.value);
+        star.addEventListener('click', () => {
+          this._rating = val;
+          this._paintStars(val);
+          this._q('fb-hint').classList.remove('show');
+        });
+        star.addEventListener('mouseenter', () => this._paintStars(val));
+        star.addEventListener('mouseleave', () => this._paintStars(this._rating));
+      });
+    }
+
+    if (commentOn) {
+      this._q('fb-comment-prompt').textContent =
+        (cfg.comment.prompt && cfg.comment.prompt.trim()) || "Anything else you'd like to share?";
+      this._q('fb-comment-wrap').style.display = '';
+    }
+
+    this._q('fb-submit').addEventListener('click', () => this._submitFeedback(ratingOn, commentOn));
+    this._q('feedback').classList.add('show');
+  }
+
+  _paintStars(upto) {
+    this._shadow.querySelectorAll('.fb-star').forEach((s) => {
+      s.classList.toggle('filled', Number(s.dataset.value) <= upto);
+    });
+  }
+
+  _submitFeedback(ratingOn, commentOn) {
+    const rating  = ratingOn ? (this._rating || null) : null;
+    const comment = commentOn ? (this._q('fb-comment').value.trim() || null) : null;
+
+    if (this._required) {
+      if (ratingOn && !rating) {
+        this._q('fb-hint').textContent = 'Please add a rating before submitting.';
+        this._q('fb-hint').classList.add('show');
+        return;
+      }
+      if (!ratingOn && commentOn && !comment) {
+        this._q('fb-hint').textContent = 'Please add a comment before submitting.';
+        this._q('fb-hint').classList.add('show');
+        return;
+      }
+    }
+
+    updateSession(_sessionId, _participantId, {
+      feedback: { rating, comment, submittedAt: new Date().toISOString() },
+    }).catch((err) => console.error('[UXTracker Participant] feedback save error:', err));
+
+    this._q('fb-rating-wrap').style.display = 'none';
+    this._q('fb-comment-wrap').style.display = 'none';
+    this._q('fb-hint').classList.remove('show');
+    this._q('fb-submit').style.display = 'none';
+    this._q('fb-thanks').style.display = 'block';
   }
 }
 

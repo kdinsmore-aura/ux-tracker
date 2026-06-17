@@ -27,7 +27,7 @@ function setupApp() {
 
     // ── Step 2 — Create / edit study ──────────────────────────────────────────
     editMode: false,
-    newStudy: { name: '', description: '', tasks: [] },
+    newStudy: { name: '', description: '', tasks: [], completion: { thankYou: '', rating: { enabled: false, prompt: '' }, comment: { enabled: false, prompt: '' }, required: false } },
     taskCounter: 1,
     createError: '',
     createSaving: false,
@@ -43,6 +43,7 @@ function setupApp() {
     pathScreens: {},     // screen_id → screenshot_url
     pathLoading: false,
     pathError: '',
+    previewIndex: null,  // index into previewItems for the screenshot modal (null = closed)
 
     // ── Step 5 — Generate links ───────────────────────────────────────────────
     linkCount: 5,
@@ -251,6 +252,7 @@ function setupApp() {
         name: study.name || '',
         description: study.description || '',
         tasks: tasks.map((t, i) => ({ id: i + 1, prompt: typeof t === 'string' ? t : (t.prompt || '') })),
+        completion: this._normalizeCompletion(study.completion),
       };
       this.taskCounter = this.newStudy.tasks.length + 1;
       if (this.newStudy.tasks.length === 0) this._addTask();
@@ -290,7 +292,7 @@ function setupApp() {
       this.editMode = false;
       this.studyId = null;
       this.study = null;
-      this.newStudy = { name: '', description: '', tasks: [] };
+      this.newStudy = { name: '', description: '', tasks: [], completion: this._normalizeCompletion(null) };
       this.taskCounter = 1;
       this.createError = '';
       this._maxStep = 2;
@@ -322,6 +324,32 @@ function setupApp() {
       this.newStudy.tasks = [...t];
     },
 
+    // Fill in any missing completion-config fields with defaults (used when
+    // loading an existing study or resetting the form).
+    _normalizeCompletion(c) {
+      c = c || {};
+      const r = c.rating || {};
+      const m = c.comment || {};
+      return {
+        thankYou: c.thankYou || '',
+        rating:   { enabled: !!r.enabled, prompt: r.prompt || '' },
+        comment:  { enabled: !!m.enabled, prompt: m.prompt || '' },
+        required: !!c.required,
+      };
+    },
+
+    // Trim and sanitise the completion config for persistence.
+    _cleanCompletion(c) {
+      const n = this._normalizeCompletion(c);
+      return {
+        thankYou: n.thankYou.trim(),
+        rating:   { enabled: n.rating.enabled,  prompt: n.rating.prompt.trim() },
+        comment:  { enabled: n.comment.enabled, prompt: n.comment.prompt.trim() },
+        // "required" is meaningless with no field enabled.
+        required: n.required && (n.rating.enabled || n.comment.enabled),
+      };
+    },
+
     async saveStudy() {
       this.createError = '';
       if (!this.newStudy.name.trim()) {
@@ -341,6 +369,7 @@ function setupApp() {
         name:        this.newStudy.name.trim(),
         description: this.newStudy.description.trim() || null,
         tasks,
+        completion:  this._cleanCompletion(this.newStudy.completion),
       };
 
       try {
@@ -448,6 +477,55 @@ function setupApp() {
     fmtMs(ms) {
       if (ms == null) return '—';
       return `~${(ms / 1000).toFixed(1)}s`;
+    },
+
+    // Resolve a step's screenshot: prefer the per-step capture, fall back to the
+    // screen-level one (older recordings have no per-step screenshotUrl).
+    stepShot(step) {
+      return (step && step.screenshotUrl) || (step && this.pathScreens[step.screenId]) || null;
+    },
+
+    // The recorded steps plus an optional trailing "final screen" card.
+    get previewItems() {
+      const items = this.idealPath.map((s, i) => ({
+        label: 'Step ' + (i + 1),
+        screenId: s.screenId,
+        selector: s.elementSelector,
+        text: s.elementText,
+        duration: s.expectedDuration,
+        url: this.stepShot(s),
+        isEnd: false,
+      }));
+      const last = this.idealPath[this.idealPath.length - 1];
+      if (last && last.endScreenshotUrl) {
+        items.push({
+          label: 'Final screen',
+          screenId: last.endScreenId || last.screenId,
+          selector: null,
+          text: null,
+          duration: null,
+          url: last.endScreenshotUrl,
+          isEnd: true,
+        });
+      }
+      return items;
+    },
+
+    get previewCurrent() {
+      return this.previewIndex == null ? null : (this.previewItems[this.previewIndex] || null);
+    },
+
+    openPreview(i) { this.previewIndex = i; },
+    closePreview() { this.previewIndex = null; },
+
+    previewPrev() {
+      if (this.previewIndex != null && this.previewIndex > 0) this.previewIndex -= 1;
+    },
+
+    previewNext() {
+      if (this.previewIndex != null && this.previewIndex < this.previewItems.length - 1) {
+        this.previewIndex += 1;
+      }
     },
 
 

@@ -238,6 +238,48 @@
           </button>
         </div>
 
+        <!-- Completion screen / feedback config -->
+        <div class="form-group">
+          <label>Completion Screen</label>
+          <p class="hint" style="margin-bottom:10px">
+            Shown to participants once they finish every task.
+          </p>
+
+          <textarea id="study-thankyou"
+                    class="input"
+                    rows="2"
+                    placeholder="Custom thank-you message (optional — a generic message is shown if left blank)"
+                    x-model="newStudy.completion.thankYou"></textarea>
+
+          <label class="cfg-check" style="margin-top:14px">
+            <input type="checkbox" x-model="newStudy.completion.rating.enabled">
+            <span>Ask for a star rating (1–5)</span>
+          </label>
+          <input class="input"
+                 type="text"
+                 style="margin-top:6px"
+                 placeholder="Rating prompt (e.g. How would you rate your experience?)"
+                 x-show="newStudy.completion.rating.enabled"
+                 x-model="newStudy.completion.rating.prompt">
+
+          <label class="cfg-check" style="margin-top:14px">
+            <input type="checkbox" x-model="newStudy.completion.comment.enabled">
+            <span>Include a comment box</span>
+          </label>
+          <input class="input"
+                 type="text"
+                 style="margin-top:6px"
+                 placeholder="Comment prompt (e.g. Anything else you'd like to share?)"
+                 x-show="newStudy.completion.comment.enabled"
+                 x-model="newStudy.completion.comment.prompt">
+
+          <label class="cfg-check" style="margin-top:14px"
+                 x-show="newStudy.completion.rating.enabled || newStudy.completion.comment.enabled">
+            <input type="checkbox" x-model="newStudy.completion.required">
+            <span>Require a response before it can be dismissed</span>
+          </label>
+        </div>
+
         <div class="btn-row">
           <button class="btn btn-primary"
                   @click="saveStudy()"
@@ -352,20 +394,46 @@
                      x-text="'Expected time: ' + fmtMs(step.expectedDuration)"></div>
               </div>
 
-              <!-- Screenshot thumbnail -->
-              <template x-if="pathScreens[step.screenId]">
+              <!-- Screenshot thumbnail (click to enlarge) -->
+              <template x-if="stepShot(step)">
                 <img class="path-thumb"
-                     :src="pathScreens[step.screenId]"
+                     :src="stepShot(step)"
                      :alt="'Screen ' + step.screenId"
-                     loading="lazy">
+                     loading="lazy"
+                     role="button"
+                     tabindex="0"
+                     title="Click to enlarge"
+                     @click="openPreview(idx)"
+                     @keydown.enter.prevent="openPreview(idx)">
               </template>
 
-              <template x-if="!pathScreens[step.screenId]">
+              <template x-if="!stepShot(step)">
                 <div class="path-no-thumb">
                   <span>No screenshot</span>
                 </div>
               </template>
 
+            </div>
+          </template>
+
+          <!-- Final-screen end card (review-only; not a recorded path step) -->
+          <template x-if="idealPath.length && idealPath[idealPath.length - 1].endScreenshotUrl">
+            <div class="path-step path-step-end">
+              <div class="path-step-num path-step-num-end" aria-hidden="true">★</div>
+              <div class="path-step-body">
+                <div class="path-screen-id"
+                     x-text="'Final screen: ' + (idealPath[idealPath.length - 1].endScreenId || '')"></div>
+                <div class="path-text">Destination after the last recorded step.</div>
+              </div>
+              <img class="path-thumb"
+                   :src="idealPath[idealPath.length - 1].endScreenshotUrl"
+                   alt="Final screen"
+                   loading="lazy"
+                   role="button"
+                   tabindex="0"
+                   title="Click to enlarge"
+                   @click="openPreview(idealPath.length)"
+                   @keydown.enter.prevent="openPreview(idealPath.length)">
             </div>
           </template>
         </div>
@@ -561,6 +629,73 @@
         <button class="btn btn-secondary" @click="cancelDelete()">Cancel</button>
       </div>
     </div>
+  </div>
+
+
+  <!-- ── Screenshot preview modal ────────────────────────────────────────── -->
+  <div class="preview-overlay"
+       x-show="previewIndex !== null"
+       x-cloak
+       @click.self="closePreview()"
+       @keydown.escape.window="closePreview()"
+       @keydown.arrow-left.window="if (previewIndex !== null) { $event.preventDefault(); previewPrev(); }"
+       @keydown.arrow-right.window="if (previewIndex !== null) { $event.preventDefault(); previewNext(); }">
+    <template x-if="previewCurrent">
+      <div class="preview-dialog">
+
+        <div class="preview-head">
+          <div class="preview-head-num" x-text="previewCurrent.isEnd ? '★' : (previewIndex + 1)"></div>
+          <div class="preview-head-screen" x-text="previewCurrent.screenId"></div>
+          <button class="preview-close" @click="closePreview()" aria-label="Close preview">&times;</button>
+        </div>
+
+        <div class="preview-figure">
+          <template x-if="previewCurrent.url">
+            <img class="preview-img"
+                 :src="previewCurrent.url"
+                 :alt="'Screen ' + previewCurrent.screenId">
+          </template>
+          <template x-if="!previewCurrent.url">
+            <div class="preview-noimg">No screenshot was captured for this screen.</div>
+          </template>
+        </div>
+
+        <div class="preview-details">
+          <div class="preview-detail">
+            <span class="preview-detail-label">View</span>
+            <span class="preview-detail-value" x-text="previewCurrent.label"></span>
+          </div>
+          <div class="preview-detail" x-show="previewCurrent.isEnd">
+            <span class="preview-detail-label">Note</span>
+            <span class="preview-detail-value">Destination after the last recorded step</span>
+          </div>
+          <div class="preview-detail" x-show="previewCurrent.selector">
+            <span class="preview-detail-label">Selector</span>
+            <span class="preview-detail-value mono" x-text="previewCurrent.selector"></span>
+          </div>
+          <div class="preview-detail" x-show="previewCurrent.text">
+            <span class="preview-detail-label">Element</span>
+            <span class="preview-detail-value" x-text="previewCurrent.text"></span>
+          </div>
+          <div class="preview-detail" x-show="!previewCurrent.isEnd">
+            <span class="preview-detail-label">Expected time</span>
+            <span class="preview-detail-value" x-text="fmtMs(previewCurrent.duration)"></span>
+          </div>
+        </div>
+
+        <div class="preview-nav">
+          <button class="btn btn-secondary btn-sm"
+                  @click="previewPrev()"
+                  :disabled="previewIndex <= 0">← Previous</button>
+          <span class="preview-nav-pos"
+                x-text="(previewIndex + 1) + ' / ' + previewItems.length"></span>
+          <button class="btn btn-secondary btn-sm"
+                  @click="previewNext()"
+                  :disabled="previewIndex >= previewItems.length - 1">Next →</button>
+        </div>
+
+      </div>
+    </template>
   </div>
 
 </div><!-- /x-data -->

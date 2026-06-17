@@ -19,6 +19,9 @@ CREATE TABLE studies (
   ideal_path         jsonb       NOT NULL DEFAULT '[]',
   -- Array of: { stepIndex, screenId, elementSelector, elementText,
   --             expectedDuration, recordedAt }
+  -- Completion-screen config: { thankYou, rating:{enabled,prompt},
+  --   comment:{enabled,prompt}, required }
+  completion         jsonb       NOT NULL DEFAULT '{}',
   status             text        NOT NULL DEFAULT 'draft',
   has_screen_changes boolean     NOT NULL DEFAULT false,
   created_at         timestamptz NOT NULL DEFAULT now(),
@@ -73,6 +76,8 @@ CREATE TABLE sessions (
   completed_at          timestamptz,
   -- Total session duration in milliseconds, set on completion
   duration_ms           integer,
+  -- Participant completion-screen feedback: { rating, comment, submittedAt }
+  feedback              jsonb,
   created_at            timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT sessions_status_check

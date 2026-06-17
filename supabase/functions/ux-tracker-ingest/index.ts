@@ -26,6 +26,7 @@ const ALLOWED_SESSION_UPDATE_FIELDS = new Set([
   'screen_changes',
   'has_screen_changes',
   'resumed_without_state',
+  'feedback',
 ]);
 
 const ALLOWED_PARTICIPANT_EXTRA_FIELDS = new Set([
