@@ -112,6 +112,7 @@ function dashboardApp() {
     // ── Participants ───────────────────────────────────────────────────────
     participants: { loading: false, error: '', loaded: false, list: [] },
     abandonTarget: null,
+    resetTarget: null,
     copiedParticipantId: null,
 
     // ── Links modal ────────────────────────────────────────────────────────
@@ -423,6 +424,36 @@ function dashboardApp() {
         const idx = this.participants.list.findIndex(x => x.id === p.id);
         if (idx !== -1) this.participants.list[idx] = { ...this.participants.list[idx], status: 'abandoned' };
       } catch {}
+    },
+
+    promptReset(p) {
+      this.resetTarget = p;
+    },
+
+    // Reopen a participant's link and wipe their prior run (session + events +
+    // feedback) so the same link can be re-used — mainly for testing.
+    async confirmReset() {
+      if (!this.resetTarget) return;
+      const p = this.resetTarget;
+      this.resetTarget = null;
+      try {
+        // Remove the prior run's session(s); events cascade-delete via FK.
+        const { error: delErr } = await this._db
+          .from('sessions').delete().eq('participant_id', p.id);
+        if (delErr) throw delErr;
+        // Reopen the participant so the invite link passes the "already
+        // completed" guard again.
+        const { error: updErr } = await this._db
+          .from('participants')
+          .update({ status: 'invited', session_id: null, started_at: null, completed_at: null })
+          .eq('id', p.id);
+        if (updErr) throw updErr;
+        // Refresh — sessions first, since participants derive _session from it.
+        await this.loadSessions(true);
+        await this.loadParticipants(true);
+      } catch (e) {
+        this.participants.error = 'Reset failed: ' + (e.message || String(e));
+      }
     },
 
     copyUrl(id, url) {

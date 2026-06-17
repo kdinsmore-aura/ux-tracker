@@ -603,6 +603,11 @@
                                   @click.stop="goSession(p._session?.id)">
                             Session
                           </button>
+                          <button class="btn btn-ghost btn-xs"
+                                  x-show="p.status !== 'invited' || p._session"
+                                  @click.stop="promptReset(p)">
+                            Reset
+                          </button>
                           <button class="btn btn-danger-ghost btn-xs"
                                   x-show="p.status !== 'abandoned'"
                                   @click.stop="promptAbandon(p)">
@@ -831,6 +836,23 @@
       <div class="btn-row">
         <button class="btn btn-danger-ghost" @click="confirmAbandon()">Yes, mark abandoned</button>
         <button class="btn btn-secondary" @click="abandonTarget = null">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ── Reset participant confirm ───────────────────────────────────────────── -->
+  <div class="confirm-overlay" x-show="resetTarget !== null" x-cloak @click.self="resetTarget = null">
+    <div class="confirm-dialog">
+      <h3>Reset participant?</h3>
+      <p>
+        This permanently deletes <strong x-text="resetTarget?.label"></strong>'s recorded
+        session, events, and feedback, and reopens their invite link so it can be used again.
+        This cannot be undone.
+      </p>
+      <div class="btn-row">
+        <button class="btn btn-danger-ghost" @click="confirmReset()">Yes, reset</button>
+        <button class="btn btn-secondary" @click="resetTarget = null">Cancel</button>
       </div>
     </div>
   </div>

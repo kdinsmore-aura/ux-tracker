@@ -307,6 +307,14 @@ CREATE POLICY "sessions_update"
   USING (true)
   WITH CHECK (true);
 
+-- Researcher "reset participant" deletes a participant's prior run from the
+-- dashboard (events cascade-delete via FK). Consistent with the permissive
+-- anon posture of the other researcher operations.
+CREATE POLICY "sessions_delete"
+  ON sessions FOR DELETE
+  TO anon
+  USING (true);
+
 
 -- ---- events ------------------------------------------------
 
