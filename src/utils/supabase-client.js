@@ -205,8 +205,25 @@ export async function fetchEventsForScreen(studyId, screenId) {
 
 // ─── Storage operations (direct — recorder runs on a trusted machine) ─────────
 
+/**
+ * Build a flat, storage-safe object key for a screen's screenshot.
+ *
+ * Screen IDs are normalised URLs and routinely contain characters that are
+ * unsafe in a Supabase Storage path: '/' (creates nested folders + a leading
+ * '//'), and — critically — '?', '&', '=', '#' from query strings. Supabase's
+ * getPublicUrl() wraps the path in encodeURI(), which does NOT escape '?'/'='/'&',
+ * so a screen ID like '/page.html?x=y' yields a URL ending '…/page.html?x=y.png'
+ * where '?x=y.png' is parsed as the query string — the object is uploaded under
+ * a truncated key and the public URL 404s. Collapsing every unsafe character to
+ * '_' produces a stable, round-trippable key (e.g. '_page.html_x_y').
+ */
+function _screenshotKey(studyId, screenId) {
+  const safe = String(screenId).replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `${studyId}/${safe}.png`;
+}
+
 export async function uploadScreenshot(studyId, screenId, blob) {
-  const path = `${studyId}/${screenId}.png`;
+  const path = _screenshotKey(studyId, screenId);
   const { error } = await getClient()
     .storage
     .from(SCREENSHOT_BUCKET)
@@ -217,7 +234,7 @@ export async function uploadScreenshot(studyId, screenId, blob) {
 }
 
 export async function getScreenshotUrl(studyId, screenId) {
-  const path = `${studyId}/${screenId}.png`;
+  const path = _screenshotKey(studyId, screenId);
   const { data } = getClient().storage.from(SCREENSHOT_BUCKET).getPublicUrl(path);
   return data.publicUrl;
 }

@@ -48,3 +48,16 @@ CREATE POLICY "screenshots_anon_insert"
   ON storage.objects FOR INSERT
   TO anon
   WITH CHECK (bucket_id = 'ux-tracker-screenshots');
+
+-- Anon update: the recorder uploads with upsert:true, so re-capturing a screen
+-- (e.g. recording the same study more than once) overwrites the existing object.
+-- Supabase Storage treats an upsert over an existing object as an UPDATE, which
+-- requires its own policy in addition to INSERT. Without this, every capture
+-- after the first is denied, uploadScreenshot() throws, and the screen's
+-- screenshot_url is overwritten with NULL — leaving "No screenshot" in the UI
+-- even though a stale file remains in the bucket.
+CREATE POLICY "screenshots_anon_update"
+  ON storage.objects FOR UPDATE
+  TO anon
+  USING (bucket_id = 'ux-tracker-screenshots')
+  WITH CHECK (bucket_id = 'ux-tracker-screenshots');
