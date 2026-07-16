@@ -245,6 +245,28 @@ const _PANEL_CSS = `
   #btn-mark    { background: #40a02b; color: #fff; flex: 1; }
   #btn-survey  { background: #89b4fa; color: #1e1e2e; width: 100%; }
   #btn-finish  { background: #f38ba8; color: #1e1e2e; width: 100%; }
+  #survey-form {
+    display: none; flex-direction: column; gap: 8px;
+    background: #181825; border: 1px solid #313244; border-radius: 6px; padding: 10px;
+  }
+  #survey-form.open { display: flex; }
+  #survey-form input[type="text"] {
+    width: 100%; box-sizing: border-box;
+    background: #313244; border: 1px solid #45475a; border-radius: 6px;
+    color: #cdd6f4; padding: 7px 8px; font-size: 12px; font-family: inherit;
+  }
+  #survey-form input[type="text"]:focus { outline: none; border-color: #89b4fa; }
+  #survey-form label {
+    font-size: 11px; color: #a6adc8; display: flex; align-items: center; gap: 6px;
+    cursor: pointer; user-select: none;
+  }
+  #survey-form select {
+    background: #313244; border: 1px solid #45475a; border-radius: 6px;
+    color: #cdd6f4; padding: 5px 6px; font-size: 11px; font-family: inherit;
+  }
+  .sf-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+  #sf-save   { background: #40a02b; color: #fff; flex: 1; }
+  #sf-cancel { background: #313244; color: #cdd6f4; flex: 1; }
   #log-toggle {
     font-size: 11px; color: #585b70; cursor: pointer;
     background: none; border: none; padding: 0; text-align: left;
@@ -295,6 +317,24 @@ class UxtRecorderPanel extends HTMLElement {
             <button id="btn-mark" title="Alt+Shift+M">Mark Step</button>
           </div>
           <button id="btn-survey" title="Alt+Shift+S">📋 Mark Survey Point</button>
+          <div id="survey-form">
+            <input type="text" id="sf-question" maxlength="200"
+                   placeholder="Survey question (e.g. How easy was that?)">
+            <label><input type="checkbox" id="sf-comment"> Add a comment box</label>
+            <input type="text" id="sf-comment-prompt" maxlength="200"
+                   placeholder="Comment prompt (optional)" style="display:none">
+            <div class="sf-row">
+              <label><input type="checkbox" id="sf-required"> Required</label>
+              <select id="sf-presentation">
+                <option value="panel">panel card</option>
+                <option value="overlay">blocking overlay</option>
+              </select>
+            </div>
+            <div class="btn-row">
+              <button id="sf-save">Save Point</button>
+              <button id="sf-cancel">Cancel</button>
+            </div>
+          </div>
           <button id="btn-finish">Finish Recording</button>
           <button id="log-toggle">▶ Show step log</button>
           <div id="log"></div>
@@ -315,17 +355,26 @@ class UxtRecorderPanel extends HTMLElement {
 
     this._q('btn-capture').addEventListener('click', () => captureCurrentScreen());
     this._q('btn-mark').addEventListener('click', () => this._markStep());
-    this._q('btn-survey').addEventListener('click', () => this._markSurveyPoint());
+    this._q('btn-survey').addEventListener('click', () => this._toggleSurveyForm());
     this._q('btn-finish').addEventListener('click', () => this._showConfirm());
     this._q('btn-yes').addEventListener('click', () => this._saveAndFinish());
     this._q('btn-no').addEventListener('click', () => this._cancelConfirm());
     this._q('log-toggle').addEventListener('click', () => this._toggleLog());
     this._q('btn-setup').addEventListener('click', () => this._openSetup());
 
+    this._q('sf-save').addEventListener('click', () => this._saveSurveyPoint());
+    this._q('sf-cancel').addEventListener('click', () => this._closeSurveyForm());
+    this._q('sf-comment').addEventListener('change', (e) => {
+      this._q('sf-comment-prompt').style.display = e.target.checked ? '' : 'none';
+    });
+    this._q('sf-question').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); this._saveSurveyPoint(); }
+    });
+
     this._keyHandler = (e) => {
       if (e.altKey && e.shiftKey && e.key === 'C') { e.preventDefault(); captureCurrentScreen(); }
       if (e.altKey && e.shiftKey && e.key === 'M') { e.preventDefault(); this._markStep(); }
-      if (e.altKey && e.shiftKey && e.key === 'S') { e.preventDefault(); this._markSurveyPoint(); }
+      if (e.altKey && e.shiftKey && e.key === 'S') { e.preventDefault(); this._toggleSurveyForm(); }
     };
     document.addEventListener('keydown', this._keyHandler);
   }
@@ -354,14 +403,39 @@ class UxtRecorderPanel extends HTMLElement {
     this._q('survey-counter').textContent = `${n} survey point${n !== 1 ? 's' : ''}`;
   }
 
-  // Mark the current screen as a mid-study survey point. Saved with the path
-  // on finish as a screen-triggered survey the researcher refines in setup.
-  _markSurveyPoint() {
+  // Toggle the inline survey-details form. The point is only recorded when
+  // the researcher hits "Save Point" (or Enter in the question field).
+  _toggleSurveyForm() {
+    if (!_state.isRecording) return;
+    const form = this._q('survey-form');
+    const open = form.classList.toggle('open');
+    if (open) this._q('sf-question').focus();
+  }
+
+  _closeSurveyForm() {
+    this._q('sf-question').value = '';
+    this._q('sf-comment').checked = false;
+    this._q('sf-comment-prompt').value = '';
+    this._q('sf-comment-prompt').style.display = 'none';
+    this._q('sf-required').checked = false;
+    this._q('sf-presentation').value = 'panel';
+    this._q('survey-form').classList.remove('open');
+  }
+
+  // Record the current screen as a mid-study survey point, carrying the
+  // details entered in the form. Saved with the path on finish as a
+  // screen-triggered survey (still refinable on the review page).
+  _saveSurveyPoint() {
     if (!_state.isRecording) return;
     const point = {
-      screenId:   computeScreenId(_config.screens),
-      stepIndex:  _state.currentStepIndex,
-      recordedAt: new Date().toISOString(),
+      screenId:       computeScreenId(_config.screens),
+      stepIndex:      _state.currentStepIndex,
+      recordedAt:     new Date().toISOString(),
+      ratingPrompt:   this._q('sf-question').value.trim(),
+      commentEnabled: this._q('sf-comment').checked,
+      commentPrompt:  this._q('sf-comment-prompt').value.trim(),
+      required:       this._q('sf-required').checked,
+      presentation:   this._q('sf-presentation').value === 'overlay' ? 'overlay' : 'panel',
     };
     _state.surveyPoints.push(point);
     _saveSurveyPoints(_state.surveyPoints);
@@ -370,9 +444,12 @@ class UxtRecorderPanel extends HTMLElement {
     const log = this._q('log');
     const entry = document.createElement('div');
     entry.className = 'log-entry';
-    entry.textContent = `📋  ${point.screenId}  [survey point]`;
+    const label = point.ratingPrompt ? `"${point.ratingPrompt.slice(0, 40)}"` : '[survey point]';
+    entry.textContent = `📋  ${point.screenId}  ${label}`;
     log.appendChild(entry);
     log.scrollTop = log.scrollHeight;
+
+    this._closeSurveyForm();
   }
 
   addStepToLog(step) {

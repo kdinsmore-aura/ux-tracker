@@ -46,6 +46,11 @@ function setupApp() {
     pathLoading: false,
     pathError: '',
     previewIndex: null,  // index into previewItems for the screenshot modal (null = closed)
+    pathSurveys: [],     // editable survey list (same shape as the step-2 editor)
+    pathSurveyCounter: 1,
+    pathSurveysSaving: false,
+    pathSurveysMsg: '',
+    pathSurveysError: '',
 
     // ── Step 5 — Generate links ───────────────────────────────────────────────
     linkCount: 5,
@@ -300,19 +305,7 @@ function setupApp() {
             goalText: g?.type === 'click' ? (g.elementText || '') : '',
           };
         }),
-        surveys: (Array.isArray(study.surveys) ? study.surveys : []).map((s, i) => ({
-          id: i + 1,
-          triggerType: s.trigger?.type === 'screen_enter' ? 'screen_enter' : 'after_task',
-          afterTaskId: s.trigger?.taskId ?? null,
-          screenId: s.trigger?.screenId || '',
-          ratingEnabled: !!s.rating?.enabled,
-          ratingPrompt: s.rating?.prompt || '',
-          commentEnabled: !!s.comment?.enabled,
-          commentPrompt: s.comment?.prompt || '',
-          required: !!s.required,
-          presentation: s.presentation === 'overlay' ? 'overlay' : 'panel',
-          source: s.source === 'recorder' ? 'recorder' : null,
-        })),
+        surveys: this._surveysToEditor(study.surveys),
         completion: this._normalizeCompletion(study.completion),
       };
       this.taskCounter = this.newStudy.tasks.length + 1;
@@ -390,6 +383,24 @@ function setupApp() {
       if (idx >= t.length - 1) return;
       [t[idx], t[idx + 1]] = [t[idx + 1], t[idx]];
       this.newStudy.tasks = [...t];
+    },
+
+    // Map persisted surveys into the editable form used by both the step-2
+    // editor and the review-path surveys section.
+    _surveysToEditor(rawSurveys) {
+      return (Array.isArray(rawSurveys) ? rawSurveys : []).map((s, i) => ({
+        id: i + 1,
+        triggerType: s.trigger?.type === 'screen_enter' ? 'screen_enter' : 'after_task',
+        afterTaskId: s.trigger?.taskId ?? null,
+        screenId: s.trigger?.screenId || '',
+        ratingEnabled: !!s.rating?.enabled,
+        ratingPrompt: s.rating?.prompt || '',
+        commentEnabled: !!s.comment?.enabled,
+        commentPrompt: s.comment?.prompt || '',
+        required: !!s.required,
+        presentation: s.presentation === 'overlay' ? 'overlay' : 'panel',
+        source: s.source === 'recorder' ? 'recorder' : null,
+      }));
     },
 
     addSurvey() {
@@ -620,10 +631,95 @@ function setupApp() {
         const m = {};
         for (const s of scr.data || []) { m[s.screen_id] = s.screenshot_url; }
         this.pathScreens = m;
+
+        // Surveys are editable right here on the review page — including the
+        // points marked with "Mark Survey Point" during the recording.
+        this.pathSurveys = this._surveysToEditor(sr.data.surveys);
+        this.pathSurveyCounter = this.pathSurveys.length + 1;
+        this.pathSurveysMsg = '';
+        this.pathSurveysError = '';
+        this.screenOptions = (scr.data || []).map(s => s.screen_id).sort();
       } catch (e) {
         this.pathError = e.message;
       } finally {
         this.pathLoading = false;
+      }
+    },
+
+    addPathSurvey() {
+      const firstTask = (this.study?.tasks || [])[0];
+      this.pathSurveys.push({
+        id: this.pathSurveyCounter++,
+        triggerType: 'after_task',
+        afterTaskId: firstTask ? firstTask.id : null,
+        screenId: '',
+        ratingEnabled: true,  ratingPrompt: '',
+        commentEnabled: false, commentPrompt: '',
+        required: false,
+        presentation: 'panel',
+        source: null,
+      });
+    },
+
+    removePathSurvey(id) {
+      this.pathSurveys = this.pathSurveys.filter(s => s.id !== id);
+    },
+
+    // Persist the review-page survey edits. Only the surveys column is
+    // touched — the recorded path stays read-only.
+    async savePathSurveys() {
+      this.pathSurveysError = '';
+      this.pathSurveysMsg = '';
+      const taskIds = new Set((this.study?.tasks || []).map(t => t.id));
+      const surveys = [];
+      for (const s of this.pathSurveys) {
+        if (!s.ratingEnabled && !s.commentEnabled) {
+          this.pathSurveysError = 'Each survey needs a rating or comment field enabled (or remove the survey).';
+          return;
+        }
+        let trigger;
+        if (s.triggerType === 'screen_enter') {
+          const sid = (s.screenId || '').trim().toLowerCase();
+          if (!sid) {
+            this.pathSurveysError = 'Each screen-triggered survey needs a screen.';
+            return;
+          }
+          trigger = { type: 'screen_enter', screenId: sid };
+        } else {
+          if (!taskIds.has(s.afterTaskId)) {
+            this.pathSurveysError = 'Each task-triggered survey must reference one of the study tasks.';
+            return;
+          }
+          trigger = { type: 'after_task', taskId: s.afterTaskId };
+        }
+        // Saving takes ownership (drops the recorder marker) so a later
+        // re-recording won't overwrite these edits.
+        surveys.push({
+          id: surveys.length + 1,
+          trigger,
+          rating:  { enabled: s.ratingEnabled,  prompt: s.ratingPrompt.trim() },
+          comment: { enabled: s.commentEnabled, prompt: s.commentPrompt.trim() },
+          required: !!s.required,
+          presentation: s.presentation === 'overlay' ? 'overlay' : 'panel',
+        });
+      }
+
+      this.pathSurveysSaving = true;
+      try {
+        const { error } = await this._db
+          .from('studies')
+          .update({ surveys, updated_at: new Date().toISOString() })
+          .eq('id', this.studyId);
+        if (error) throw error;
+        this.study = { ...this.study, surveys };
+        this.pathSurveys = this._surveysToEditor(surveys);
+        this.pathSurveyCounter = this.pathSurveys.length + 1;
+        this.pathSurveysMsg = 'Surveys saved.';
+        setTimeout(() => { this.pathSurveysMsg = ''; }, 2500);
+      } catch (e) {
+        this.pathSurveysError = 'Failed to save surveys: ' + (e.message || String(e));
+      } finally {
+        this.pathSurveysSaving = false;
       }
     },
 

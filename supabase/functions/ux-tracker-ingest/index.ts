@@ -380,19 +380,23 @@ Deno.serve(async (req: Request) => {
           const existing = Array.isArray(studyRow?.surveys) ? studyRow.surveys as Record<string, unknown>[] : [];
           const manual = existing.filter((s) => s?.source !== 'recorder');
           let nextId = manual.reduce((m, s) => Math.max(m, Number(s?.id) || 0), 0);
+          const capText = (v: unknown) => String(v ?? '').trim().slice(0, 200);
           const recorded = recordedSurveys
             .slice(0, 20)
-            .map((p: Record<string, unknown>) => String(p?.screenId || '').trim().toLowerCase())
-            .filter((sid: string) => sid.length > 0)
-            .map((sid: string) => ({
-              id: ++nextId,
-              trigger: { type: 'screen_enter', screenId: sid },
-              rating:  { enabled: true, prompt: '' },
-              comment: { enabled: false, prompt: '' },
-              required: false,
-              presentation: 'panel',
-              source: 'recorder',
-            }));
+            .map((p: Record<string, unknown>) => {
+              const sid = String(p?.screenId || '').trim().toLowerCase();
+              if (!sid) return null;
+              return {
+                id: ++nextId,
+                trigger: { type: 'screen_enter', screenId: sid },
+                rating:  { enabled: true, prompt: capText(p?.ratingPrompt) },
+                comment: { enabled: !!p?.commentEnabled, prompt: capText(p?.commentPrompt) },
+                required: !!p?.required,
+                presentation: p?.presentation === 'overlay' ? 'overlay' : 'panel',
+                source: 'recorder',
+              };
+            })
+            .filter((s) => s !== null);
           update.surveys = [...manual, ...recorded];
         }
 

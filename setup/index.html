@@ -575,6 +575,94 @@
           </template>
         </div>
 
+        <!-- Mid-study surveys — editable here, unlike the path itself -->
+        <div x-show="!pathLoading" style="margin-top:28px">
+          <p class="section-label">Mid-study Surveys</p>
+          <p class="hint" style="margin-bottom:10px">
+            Points marked with <strong>📋 Mark Survey Point</strong> during the
+            recording appear here — refine their prompts, or add more. Unlike
+            the path, surveys can be edited freely without invalidating sessions.
+          </p>
+
+          <div x-show="pathSurveysError" class="msg msg-error" x-text="pathSurveysError"></div>
+          <div x-show="pathSurveysMsg" class="msg msg-success" x-text="pathSurveysMsg"></div>
+
+          <template x-for="(s, si) in pathSurveys" :key="s.id">
+            <div class="survey-card">
+              <div class="survey-card-head">
+                <span class="survey-card-title" x-text="'Survey ' + (si + 1)"></span>
+                <button class="btn btn-danger-ghost btn-xs" @click="removePathSurvey(s.id)">✕ Remove</button>
+              </div>
+
+              <div class="survey-row">
+                <span class="task-goal-label">When</span>
+                <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                        x-model="s.triggerType">
+                  <option value="after_task">a task completes</option>
+                  <option value="screen_enter">a screen is reached</option>
+                </select>
+                <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                        x-show="s.triggerType === 'after_task'"
+                        x-model.number="s.afterTaskId">
+                  <template x-for="(t, ti) in (study?.tasks || [])" :key="t.id">
+                    <option :value="t.id"
+                            x-text="(ti + 1) + '. ' + (t.prompt || '(untitled)')"></option>
+                  </template>
+                </select>
+                <input class="input mono" style="flex:1;min-width:160px;padding:6px 8px;font-size:12px"
+                       x-show="s.triggerType === 'screen_enter'"
+                       list="screen-options"
+                       placeholder="/checkout/confirmation"
+                       x-model="s.screenId">
+                <span class="task-goal-label" style="margin-left:10px">shown as</span>
+                <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                        x-model="s.presentation">
+                  <option value="panel">panel card</option>
+                  <option value="overlay">blocking overlay</option>
+                </select>
+                <span class="badge badge-draft" x-show="s.source === 'recorder'"
+                      title="Created with Mark Survey Point during recording">from recording</span>
+              </div>
+
+              <label class="cfg-check" style="margin-top:10px">
+                <input type="checkbox" x-model="s.ratingEnabled">
+                <span>Star rating (1–5)</span>
+              </label>
+              <input class="input" style="margin-top:6px;padding:6px 8px;font-size:12px"
+                     x-show="s.ratingEnabled"
+                     placeholder="Rating prompt (e.g. How easy was that?)"
+                     x-model="s.ratingPrompt">
+
+              <label class="cfg-check" style="margin-top:10px">
+                <input type="checkbox" x-model="s.commentEnabled">
+                <span>Comment box</span>
+              </label>
+              <input class="input" style="margin-top:6px;padding:6px 8px;font-size:12px"
+                     x-show="s.commentEnabled"
+                     placeholder="Comment prompt (e.g. What made it hard?)"
+                     x-model="s.commentPrompt">
+
+              <label class="cfg-check" style="margin-top:10px"
+                     x-show="s.ratingEnabled || s.commentEnabled">
+                <input type="checkbox" x-model="s.required">
+                <span>Required — participant must answer before continuing</span>
+              </label>
+            </div>
+          </template>
+
+          <div class="btn-row" style="margin-top:4px">
+            <button class="btn btn-ghost btn-sm" @click="addPathSurvey()">+ Add Survey</button>
+            <button class="btn btn-primary btn-sm"
+                    @click="savePathSurveys()"
+                    :disabled="pathSurveysSaving">
+              <span x-show="!pathSurveysSaving">Save Surveys</span>
+              <span x-show="pathSurveysSaving">Saving…</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
         <div class="btn-row" x-show="!pathLoading">
           <button class="btn btn-primary"
                   @click="_goto(5)"
