@@ -231,37 +231,132 @@
           <label>Tasks <span style="color:var(--danger)">*</span></label>
           <p class="hint" style="margin-bottom:10px">
             Write each task as a prompt the participant will read.
-            At least one task is required.
+            Give each task a completion goal — a key screen or element — so any
+            route the participant takes to reach it counts as success. Tasks
+            without a goal fall back to strict recorded-path matching.
           </p>
 
           <div class="tasks-list">
             <template x-for="(task, idx) in newStudy.tasks" :key="task.id">
-              <div class="task-row">
-                <span class="task-row-num" x-text="idx + 1"></span>
-                <input class="input"
-                       type="text"
-                       placeholder="Task prompt…"
-                       x-model="task.prompt">
-                <div class="task-btns">
-                  <button class="btn btn-ghost btn-xs"
-                          @click="moveTaskUp(idx)"
-                          :disabled="idx === 0"
-                          title="Move up">↑</button>
-                  <button class="btn btn-ghost btn-xs"
-                          @click="moveTaskDown(idx)"
-                          :disabled="idx === newStudy.tasks.length - 1"
-                          title="Move down">↓</button>
-                  <button class="btn btn-danger-ghost btn-xs"
-                          @click="removeTask(task.id)"
-                          :disabled="newStudy.tasks.length === 1"
-                          title="Remove task">✕</button>
+              <div class="task-block">
+                <div class="task-row">
+                  <span class="task-row-num" x-text="idx + 1"></span>
+                  <input class="input"
+                         type="text"
+                         placeholder="Task prompt…"
+                         x-model="task.prompt">
+                  <div class="task-btns">
+                    <button class="btn btn-ghost btn-xs"
+                            @click="moveTaskUp(idx)"
+                            :disabled="idx === 0"
+                            title="Move up">↑</button>
+                    <button class="btn btn-ghost btn-xs"
+                            @click="moveTaskDown(idx)"
+                            :disabled="idx === newStudy.tasks.length - 1"
+                            title="Move down">↓</button>
+                    <button class="btn btn-danger-ghost btn-xs"
+                            @click="removeTask(task.id)"
+                            :disabled="newStudy.tasks.length === 1"
+                            title="Remove task">✕</button>
+                  </div>
+                </div>
+                <div class="task-goal-row">
+                  <span class="task-goal-label">Completed when</span>
+                  <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                          x-model="task.goalType">
+                    <option value="none">— no goal (match recorded path) —</option>
+                    <option value="screen">participant reaches screen</option>
+                    <option value="click">participant clicks element</option>
+                  </select>
+                  <input class="input mono" style="flex:1;padding:6px 8px;font-size:12px"
+                         x-show="task.goalType === 'screen'"
+                         list="screen-options"
+                         placeholder="/checkout/confirmation"
+                         x-model="task.goalScreenId">
+                  <input class="input mono" style="flex:1;padding:6px 8px;font-size:12px"
+                         x-show="task.goalType === 'click'"
+                         placeholder="#btn-save  (CSS selector)"
+                         x-model="task.goalSelector">
+                  <input class="input" style="flex:1;padding:6px 8px;font-size:12px"
+                         x-show="task.goalType === 'click'"
+                         placeholder="Save  (visible text)"
+                         x-model="task.goalText">
                 </div>
               </div>
             </template>
           </div>
+          <datalist id="screen-options">
+            <template x-for="s in screenOptions" :key="s">
+              <option :value="s"></option>
+            </template>
+          </datalist>
 
           <button class="btn btn-ghost btn-sm" @click="addTask()" style="margin-top:4px">
             + Add Task
+          </button>
+        </div>
+
+        <!-- Mid-study surveys -->
+        <div class="form-group">
+          <label>Mid-study Surveys</label>
+          <p class="hint" style="margin-bottom:10px">
+            Poll the participant the moment a chosen task completes — a quick
+            rating and/or comment, shown in the task panel or as a blocking overlay.
+          </p>
+
+          <template x-for="(s, si) in newStudy.surveys" :key="s.id">
+            <div class="survey-card">
+              <div class="survey-card-head">
+                <span class="survey-card-title" x-text="'Survey ' + (si + 1)"></span>
+                <button class="btn btn-danger-ghost btn-xs" @click="removeSurvey(s.id)">✕ Remove</button>
+              </div>
+
+              <div class="survey-row">
+                <span class="task-goal-label">After task</span>
+                <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                        x-model.number="s.afterTaskId">
+                  <template x-for="(t, ti) in newStudy.tasks" :key="t.id">
+                    <option :value="t.id"
+                            x-text="(ti + 1) + '. ' + (t.prompt || '(untitled)')"></option>
+                  </template>
+                </select>
+                <span class="task-goal-label" style="margin-left:10px">shown as</span>
+                <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                        x-model="s.presentation">
+                  <option value="panel">panel card</option>
+                  <option value="overlay">blocking overlay</option>
+                </select>
+              </div>
+
+              <label class="cfg-check" style="margin-top:10px">
+                <input type="checkbox" x-model="s.ratingEnabled">
+                <span>Star rating (1–5)</span>
+              </label>
+              <input class="input" style="margin-top:6px;padding:6px 8px;font-size:12px"
+                     x-show="s.ratingEnabled"
+                     placeholder="Rating prompt (e.g. How easy was that task?)"
+                     x-model="s.ratingPrompt">
+
+              <label class="cfg-check" style="margin-top:10px">
+                <input type="checkbox" x-model="s.commentEnabled">
+                <span>Comment box</span>
+              </label>
+              <input class="input" style="margin-top:6px;padding:6px 8px;font-size:12px"
+                     x-show="s.commentEnabled"
+                     placeholder="Comment prompt (e.g. What made it hard?)"
+                     x-model="s.commentPrompt">
+
+              <label class="cfg-check" style="margin-top:10px"
+                     x-show="s.ratingEnabled || s.commentEnabled">
+                <input type="checkbox" x-model="s.required">
+                <span>Required — participant must answer before continuing</span>
+              </label>
+            </div>
+          </template>
+
+          <button class="btn btn-ghost btn-sm" @click="addSurvey()"
+                  :disabled="newStudy.tasks.length === 0">
+            + Add Survey
           </button>
         </div>
 

@@ -15,13 +15,20 @@ CREATE TABLE studies (
   name               text        NOT NULL,
   description        text,
   tasks              jsonb       NOT NULL DEFAULT '[]',
-  -- Array of: { id, prompt, order }
+  -- Array of: { id, prompt, order,
+  --   goal?: { type: 'screen', screenId } | { type: 'click', selector?, elementText? } }
+  -- When a task has a goal, completion is goal-based (any route counts);
+  -- the recorded ideal_path is used for efficiency analytics only.
   ideal_path         jsonb       NOT NULL DEFAULT '[]',
   -- Array of: { stepIndex, screenId, elementSelector, elementText,
   --             expectedDuration, recordedAt }
   -- Completion-screen config: { thankYou, rating:{enabled,prompt},
   --   comment:{enabled,prompt}, required }
   completion         jsonb       NOT NULL DEFAULT '{}',
+  -- Mid-study surveys: [{ id, trigger:{type:'after_task', taskId},
+  --   rating:{enabled,prompt}, comment:{enabled,prompt},
+  --   required, presentation:'panel'|'overlay' }]
+  surveys            jsonb       NOT NULL DEFAULT '[]',
   status             text        NOT NULL DEFAULT 'draft',
   has_screen_changes boolean     NOT NULL DEFAULT false,
   created_at         timestamptz NOT NULL DEFAULT now(),
@@ -78,6 +85,12 @@ CREATE TABLE sessions (
   duration_ms           integer,
   -- Participant completion-screen feedback: { rating, comment, submittedAt }
   feedback              jsonb,
+  -- Mid-study survey responses: [{ surveyId, rating, comment, skipped,
+  --   screenId, taskIndex, msSinceSessionStart, submittedAt }]
+  survey_responses      jsonb       NOT NULL DEFAULT '[]',
+  -- Task-level progress (goal mode); step columns track the reference path
+  current_task_index    integer     NOT NULL DEFAULT 0,
+  completed_tasks       integer     NOT NULL DEFAULT 0,
   created_at            timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT sessions_status_check

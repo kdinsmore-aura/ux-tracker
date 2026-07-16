@@ -40,6 +40,18 @@ let _screenChanges    = [];
 let _totalSteps       = 0;
 let _sortedTasks      = [];  // study.tasks sorted by .order
 
+// Goal mode: active when any task defines a completion goal. Completion is
+// then task-driven (any route to the goal counts); the recorded ideal path
+// is scored for analytics only.
+let _goalMode            = false;
+let _currentTaskIndex    = 0;
+let _completedTasks      = 0;
+let _surveys             = [];    // study.surveys (after_task triggers)
+let _firedSurveys        = [];    // survey ids already shown this session
+let _surveyResponses     = [];    // accumulated responses (mirrored to the session row)
+let _surveyActive        = false; // a survey card/overlay is currently displayed
+let _pendingCompletionMs = null;  // completion screen deferred until survey submit
+
 // ─── Session state helpers ────────────────────────────────────────────────────
 
 function _getState() {
@@ -53,6 +65,10 @@ function _getState() {
     lastEventTime:    new Date(_lastEventTime).toISOString(),
     screenChanges:    _screenChanges,
     minimized:        _panel ? _panel._minimized : false,
+    currentTaskIndex: _currentTaskIndex,
+    completedTasks:   _completedTasks,
+    firedSurveys:     _firedSurveys,
+    surveyResponses:  _surveyResponses,
   };
 }
 
@@ -190,6 +206,15 @@ async function _runScreenChangeDetection(sessionId, screenIdOverride) {
 
 function _updatePanel() {
   if (!_panel) return;
+  if (_surveyActive) return;   // don't repaint while a survey card is up
+
+  if (_goalMode) {
+    const idx  = Math.min(_currentTaskIndex, _sortedTasks.length - 1);
+    const task = _sortedTasks[idx];
+    _panel.updateTask(task?.prompt ?? '', idx, _completedTasks, _sortedTasks.length);
+    return;
+  }
+
   const taskIndex = Math.min(_currentStepIndex, _sortedTasks.length - 1);
   const task      = _sortedTasks[taskIndex];
   _panel.updateTask(
@@ -198,6 +223,149 @@ function _updatePanel() {
     _completedSteps,
     _totalSteps,
   );
+}
+
+// ─── Task goals (goal mode) ───────────────────────────────────────────────────
+
+function _activeTask() {
+  return _sortedTasks[_currentTaskIndex] ?? null;
+}
+
+// A task's goal, or null when absent/malformed.
+function _taskGoal(task) {
+  const g = task?.goal;
+  if (!g) return null;
+  if (g.type === 'screen' && g.screenId) return g;
+  if (g.type === 'click' && (g.selector || g.elementText)) return g;
+  return null;
+}
+
+function _screenMatchesGoal(screenId, goalScreenId) {
+  const a = String(screenId || '').toLowerCase().trim();
+  const b = String(goalScreenId || '').toLowerCase().trim();
+  if (!b) return false;
+  if (a === b) return true;
+  // A goal that pins a query/hash must match exactly; a plain path goal
+  // matches any variant of that route ('/checkout?step=2' reaches '/checkout').
+  if (b.includes('?') || b.includes('#')) return false;
+  const norm = (s) => (s.split('#')[0].split('?')[0].replace(/\/+$/, '') || '/');
+  return norm(a) === norm(b);
+}
+
+function _clickMatchesGoal(clickData, goal) {
+  if (goal.selector && clickData.elementSelector === goal.selector) return true;
+  if (goal.elementText && clickData.elementText &&
+      clickData.elementText.toLowerCase().includes(goal.elementText.toLowerCase())) {
+    return true;
+  }
+  // The goal selector may name an ancestor of the actual click target.
+  try {
+    if (goal.selector) {
+      const clicked = document.elementFromPoint(clickData.viewportX, clickData.viewportY);
+      const target  = document.querySelector(goal.selector);
+      if (clicked && target && (target === clicked || target.contains(clicked))) return true;
+    }
+  } catch {
+    // Invalid selector — fall through
+  }
+  return false;
+}
+
+// Evaluate the active task's goal against the current screen (and click, when
+// one triggered the evaluation). Tasks without a goal auto-complete in goal
+// mode, cascading to the next task.
+function _evaluateActiveGoal(screenId, clickData) {
+  if (!_goalMode) return;
+  const task = _activeTask();
+  if (!task) return;
+  const goal = _taskGoal(task);
+  if (!goal) { _completeTask(screenId); return; }
+  if (goal.type === 'screen' && _screenMatchesGoal(screenId, goal.screenId)) {
+    _completeTask(screenId);
+    return;
+  }
+  if (goal.type === 'click' && clickData && _clickMatchesGoal(clickData, goal)) {
+    _completeTask(screenId);
+  }
+}
+
+function _completeTask(screenId) {
+  const task = _activeTask();
+  if (!task) return;
+
+  bufferEvent(
+    _makeEvent('task_complete', screenId, { step_index: _currentTaskIndex }),
+    _getState(),
+    _participantId,
+  );
+
+  _currentTaskIndex += 1;
+  _completedTasks   += 1;
+  _saveState();
+
+  updateSession(_sessionId, _participantId, {
+    current_task_index: _currentTaskIndex,
+    completed_tasks:    _completedTasks,
+  }).catch(() => {});
+
+  _updatePanel();
+  _maybeFireSurvey(task, screenId);
+
+  if (_currentTaskIndex >= _sortedTasks.length) {
+    _completeSession().catch((err) => {
+      console.error('[UXTracker Participant] Session completion error:', err);
+    });
+    return;
+  }
+
+  bufferEvent(
+    _makeEvent('task_start', screenId, { step_index: _currentTaskIndex }),
+    _getState(),
+    _participantId,
+  );
+
+  // The next task's goal may already be satisfied on this screen (or the
+  // task may have no goal) — cascade immediately.
+  _evaluateActiveGoal(screenId, null);
+}
+
+// ─── Mid-study surveys ────────────────────────────────────────────────────────
+
+function _maybeFireSurvey(completedTask, screenId) {
+  const survey = _surveys.find((s) =>
+    s?.trigger?.type === 'after_task' &&
+    s.trigger.taskId === completedTask.id &&
+    !_firedSurveys.includes(s.id));
+  if (!survey || !_panel) return;
+
+  _firedSurveys.push(survey.id);
+  _surveyActive = true;
+  _saveState();
+
+  _panel.showSurvey(survey, (result) => {
+    _surveyActive = false;
+    _surveyResponses.push({
+      surveyId:            survey.id,
+      rating:              result.rating ?? null,
+      comment:             result.comment ?? null,
+      skipped:             !!result.skipped,
+      screenId,
+      taskIndex:           _currentTaskIndex - 1,
+      msSinceSessionStart: Date.now() - _sessionStartTime,
+      submittedAt:         new Date().toISOString(),
+    });
+    _saveState();
+    updateSession(_sessionId, _participantId, { survey_responses: _surveyResponses })
+      .catch((err) => console.error('[UXTracker Participant] survey save error:', err));
+
+    if (_pendingCompletionMs != null) {
+      const ms = _pendingCompletionMs;
+      _pendingCompletionMs = null;
+      if (_panel) _panel.showComplete(ms);
+    } else {
+      _updatePanel();
+    }
+  });
 }
 
 // ─── Click handler ────────────────────────────────────────────────────────────
@@ -228,6 +396,22 @@ function _handleClick(clickData) {
   });
 
   bufferEvent(event, _getState(), _participantId);
+
+  if (_goalMode) {
+    // Reference-path cursor still advances for analytics, but completion is
+    // task-goal driven — reaching the end of the recording completes nothing.
+    if (advancesStep) {
+      _currentStepIndex++;
+      _completedSteps++;
+      _saveState();
+      updateSession(_sessionId, _participantId, {
+        current_step_index: _currentStepIndex,
+        completed_steps:    _completedSteps,
+      }).catch(() => {});
+    }
+    _evaluateActiveGoal(screenId, clickData);
+    return;
+  }
 
   if (!advancesStep) return;
 
@@ -278,6 +462,7 @@ async function _handleNavigation() {
   bufferEvent(_makeEvent('screen_enter', newScreenId, {}), _getState(), _participantId);
 
   _runScreenChangeDetection(_sessionId, newScreenId).catch(() => {});
+  _evaluateActiveGoal(newScreenId, null);
   _updatePanel();
 }
 
@@ -349,7 +534,14 @@ async function _completeSession() {
     }
   }
 
-  if (_panel) _panel.showComplete(durationMs);
+  if (_surveyActive) {
+    // A mid-study survey is still on screen (fired by the final task) —
+    // the completion screen appears once it's answered. All completion
+    // data above is already persisted either way.
+    _pendingCompletionMs = durationMs;
+  } else if (_panel) {
+    _panel.showComplete(durationMs);
+  }
 }
 
 // ─── Panel render ─────────────────────────────────────────────────────────────
@@ -448,6 +640,52 @@ const _PANEL_CSS = `
   #fb-hint { font-size: 12px; color: #dc2626; display: none; }
   #fb-hint.show { display: block; }
   #fb-thanks { font-size: 13px; font-weight: 500; color: #15803d; display: none; }
+  #survey-body {
+    padding: 16px; display: none; border-top: 1px solid #e9ecef;
+  }
+  #survey-body.open { display: block; }
+  #panel.minimized #survey-body { display: none !important; }
+  #survey-overlay {
+    position: fixed; inset: 0; background: rgba(17,24,39,.5);
+    display: none; align-items: center; justify-content: center;
+    z-index: 2147483647;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  #survey-overlay.open { display: flex; }
+  .sv-inline { display: flex; flex-direction: column; gap: 10px; }
+  .sv-dialog {
+    background: #ffffff; border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.3);
+    padding: 20px; width: 340px; max-width: 90vw;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .sv-prompt { font-size: 13px; font-weight: 500; color: #1a1a2e; line-height: 1.4; }
+  .sv-stars { display: flex; gap: 4px; }
+  .sv-star {
+    background: none; border: none; padding: 0; cursor: pointer;
+    font-size: 26px; line-height: 1; color: #d1d5db; transition: color .1s;
+  }
+  .sv-star.filled { color: #f59e0b; }
+  .sv-comment {
+    width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px;
+    border: 1px solid #d1d5db; border-radius: 6px; padding: 8px;
+    font-family: inherit; font-size: 13px; color: #1a1a2e;
+  }
+  .sv-comment:focus { outline: none; border-color: #4f46e5; }
+  .sv-btn-row { display: flex; gap: 8px; }
+  .sv-submit {
+    padding: 7px 14px; border: none; border-radius: 6px;
+    background: #4f46e5; color: #fff; font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: opacity .15s;
+  }
+  .sv-submit:hover { opacity: .9; }
+  .sv-skip {
+    padding: 7px 14px; border: none; border-radius: 6px;
+    background: #e9ecef; color: #374151; font-size: 13px; font-weight: 500;
+    cursor: pointer;
+  }
+  .sv-hint { font-size: 12px; color: #dc2626; display: none; }
+  .sv-hint.show { display: block; }
 `;
 
 class UxtTaskPanel extends HTMLElement {
@@ -494,7 +732,9 @@ class UxtTaskPanel extends HTMLElement {
             <div id="fb-thanks">Thanks for your feedback!</div>
           </div>
         </div>
+        <div id="survey-body"></div>
       </div>
+      <div id="survey-overlay"></div>
     `;
     this._q('header').addEventListener('click', () => this._toggleMinimize());
   }
@@ -630,6 +870,119 @@ class UxtTaskPanel extends HTMLElement {
     this._q('fb-submit').style.display = 'none';
     this._q('fb-thanks').style.display = 'block';
   }
+
+  // Present a mid-study survey — inline in the panel body or as a blocking
+  // overlay, per the survey's presentation setting. onDone receives
+  // { rating, comment, skipped }. Prompts are set via textContent, so
+  // researcher-authored text is never parsed as HTML.
+  showSurvey(survey, onDone) {
+    const overlayMode = survey.presentation === 'overlay';
+    const ratingOn    = !!(survey.rating && survey.rating.enabled);
+    const commentOn   = !!(survey.comment && survey.comment.enabled);
+    const required    = !!survey.required;
+
+    this.setMinimized(false);
+
+    const host = overlayMode ? this._q('survey-overlay') : this._q('survey-body');
+    const card = document.createElement('div');
+    card.className = overlayMode ? 'sv-dialog' : 'sv-inline';
+
+    let rating = 0;
+    const stars = [];
+    const hint = document.createElement('div');
+    hint.className = 'sv-hint';
+
+    if (ratingOn) {
+      const prompt = document.createElement('div');
+      prompt.className = 'sv-prompt';
+      prompt.textContent = (survey.rating.prompt || '').trim() || 'How was that?';
+      card.appendChild(prompt);
+
+      const starRow = document.createElement('div');
+      starRow.className = 'sv-stars';
+      starRow.setAttribute('role', 'radiogroup');
+      starRow.setAttribute('aria-label', 'Rating');
+      const paint = (upto) => stars.forEach((s, i) => s.classList.toggle('filled', i < upto));
+      for (let v = 1; v <= 5; v++) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'sv-star';
+        b.textContent = '★';
+        b.setAttribute('aria-label', `${v} star${v > 1 ? 's' : ''}`);
+        b.addEventListener('click', () => { rating = v; paint(v); hint.classList.remove('show'); });
+        b.addEventListener('mouseenter', () => paint(v));
+        b.addEventListener('mouseleave', () => paint(rating));
+        stars.push(b);
+        starRow.appendChild(b);
+      }
+      card.appendChild(starRow);
+    }
+
+    let commentEl = null;
+    if (commentOn) {
+      const prompt = document.createElement('div');
+      prompt.className = 'sv-prompt';
+      prompt.textContent = (survey.comment.prompt || '').trim() || "Anything you'd like to share?";
+      card.appendChild(prompt);
+      commentEl = document.createElement('textarea');
+      commentEl.className = 'sv-comment';
+      commentEl.placeholder = (required && !ratingOn) ? '' : 'Optional';
+      card.appendChild(commentEl);
+    }
+
+    card.appendChild(hint);
+
+    const finish = (result) => {
+      host.innerHTML = '';
+      host.classList.remove('open');
+      if (!overlayMode) this._q('body').style.display = '';
+      onDone(result);
+    };
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'sv-btn-row';
+
+    const submit = document.createElement('button');
+    submit.type = 'button';
+    submit.className = 'sv-submit';
+    submit.textContent = 'Submit';
+    submit.addEventListener('click', () => {
+      const comment = commentEl ? commentEl.value.trim() : '';
+      if (required) {
+        if (ratingOn && !rating) {
+          hint.textContent = 'Please add a rating.';
+          hint.classList.add('show');
+          return;
+        }
+        if (!ratingOn && commentOn && !comment) {
+          hint.textContent = 'Please add a comment.';
+          hint.classList.add('show');
+          return;
+        }
+      }
+      finish({
+        rating:  ratingOn ? (rating || null) : null,
+        comment: commentOn ? (comment || null) : null,
+        skipped: false,
+      });
+    });
+    btnRow.appendChild(submit);
+
+    if (!required) {
+      const skip = document.createElement('button');
+      skip.type = 'button';
+      skip.className = 'sv-skip';
+      skip.textContent = 'Skip';
+      skip.addEventListener('click', () => finish({ rating: null, comment: null, skipped: true }));
+      btnRow.appendChild(skip);
+    }
+    card.appendChild(btnRow);
+
+    host.innerHTML = '';
+    host.appendChild(card);
+    if (!overlayMode) this._q('body').style.display = 'none';
+    host.classList.add('open');
+  }
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
@@ -681,6 +1034,8 @@ export default async function initParticipant(config, study) {
   _participantId = participantId;
   _totalSteps    = Array.isArray(study.ideal_path) ? study.ideal_path.length : 0;
   _sortedTasks   = [...tasks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  _surveys       = Array.isArray(study.surveys) ? study.surveys : [];
+  _goalMode      = _sortedTasks.some((t) => _taskGoal(t) !== null);
 
   // 4. Check for existing session state
   const existingState   = getSessionState(participantId);
@@ -695,6 +1050,10 @@ export default async function initParticipant(config, study) {
     _sessionStartTime = new Date(existingState.sessionStartTime).getTime();
     _lastEventTime    = Date.now();
     _screenChanges    = existingState.screenChanges ?? [];
+    _currentTaskIndex = existingState.currentTaskIndex ?? 0;
+    _completedTasks   = existingState.completedTasks ?? 0;
+    _firedSurveys     = existingState.firedSurveys ?? [];
+    _surveyResponses  = existingState.surveyResponses ?? [];
 
     setEventBuffer(existingState.eventBuffer ?? []);
 
@@ -736,6 +1095,10 @@ export default async function initParticipant(config, study) {
     _sessionStartTime = Date.now();
     _lastEventTime    = Date.now();
     _screenChanges    = [];
+    _currentTaskIndex = 0;
+    _completedTasks   = 0;
+    _firedSurveys     = [];
+    _surveyResponses  = [];
 
     updateParticipantStatus(participantId, 'in_progress', {
       started_at: now,
@@ -749,6 +1112,14 @@ export default async function initParticipant(config, study) {
       _getState(),
       _participantId,
     );
+
+    if (_goalMode) {
+      bufferEvent(
+        _makeEvent('task_start', computeScreenId(_config.screens), { step_index: 0 }),
+        _getState(),
+        _participantId,
+      );
+    }
   }
 
   // 7. Start click capture
@@ -768,4 +1139,9 @@ export default async function initParticipant(config, study) {
   // 9. Render task panel
   _renderPanel();
   _currentScreenId = computeScreenId(_config.screens);
+
+  // 10. Goal mode: full-page prototypes re-boot the tracker on every page
+  // load, so evaluate the active task's goal against the landing screen —
+  // this is how screen goals complete across real navigations.
+  _evaluateActiveGoal(_currentScreenId, null);
 }

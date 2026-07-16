@@ -27,6 +27,9 @@ const ALLOWED_SESSION_UPDATE_FIELDS = new Set([
   'has_screen_changes',
   'resumed_without_state',
   'feedback',
+  'survey_responses',
+  'current_task_index',
+  'completed_tasks',
 ]);
 
 const ALLOWED_PARTICIPANT_EXTRA_FIELDS = new Set([

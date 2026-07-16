@@ -27,7 +27,9 @@ function setupApp() {
 
     // ── Step 2 — Create / edit study ──────────────────────────────────────────
     editMode: false,
-    newStudy: { name: '', description: '', tasks: [], completion: { thankYou: '', rating: { enabled: false, prompt: '' }, comment: { enabled: false, prompt: '' }, required: false } },
+    newStudy: { name: '', description: '', tasks: [], surveys: [], completion: { thankYou: '', rating: { enabled: false, prompt: '' }, comment: { enabled: false, prompt: '' }, required: false } },
+    surveyCounter: 1,
+    screenOptions: [],   // recorded screen ids, suggested in the goal picker
     taskCounter: 1,
     createError: '',
     createSaving: false,
@@ -287,10 +289,32 @@ function setupApp() {
       this.newStudy = {
         name: study.name || '',
         description: study.description || '',
-        tasks: tasks.map((t, i) => ({ id: i + 1, prompt: typeof t === 'string' ? t : (t.prompt || '') })),
+        tasks: tasks.map((t, i) => {
+          const g = (typeof t === 'object' && t?.goal) || null;
+          return {
+            id: i + 1,
+            prompt: typeof t === 'string' ? t : (t.prompt || ''),
+            goalType: (g?.type === 'screen' || g?.type === 'click') ? g.type : 'none',
+            goalScreenId: g?.type === 'screen' ? (g.screenId || '') : '',
+            goalSelector: g?.type === 'click' ? (g.selector || '') : '',
+            goalText: g?.type === 'click' ? (g.elementText || '') : '',
+          };
+        }),
+        surveys: (Array.isArray(study.surveys) ? study.surveys : []).map((s, i) => ({
+          id: i + 1,
+          afterTaskId: s.trigger?.taskId ?? null,
+          ratingEnabled: !!s.rating?.enabled,
+          ratingPrompt: s.rating?.prompt || '',
+          commentEnabled: !!s.comment?.enabled,
+          commentPrompt: s.comment?.prompt || '',
+          required: !!s.required,
+          presentation: s.presentation === 'overlay' ? 'overlay' : 'panel',
+        })),
         completion: this._normalizeCompletion(study.completion),
       };
       this.taskCounter = this.newStudy.tasks.length + 1;
+      this.surveyCounter = this.newStudy.surveys.length + 1;
+      this._loadScreenOptions();
       if (this.newStudy.tasks.length === 0) this._addTask();
       this.createError = '';
       // Unlock steps already completed for this study
@@ -328,8 +352,10 @@ function setupApp() {
       this.editMode = false;
       this.studyId = null;
       this.study = null;
-      this.newStudy = { name: '', description: '', tasks: [], completion: this._normalizeCompletion(null) };
+      this.newStudy = { name: '', description: '', tasks: [], surveys: [], completion: this._normalizeCompletion(null) };
       this.taskCounter = 1;
+      this.surveyCounter = 1;
+      this.screenOptions = [];
       this.createError = '';
       this._maxStep = 2;
       this._addTask();
@@ -337,7 +363,10 @@ function setupApp() {
     },
 
     _addTask() {
-      this.newStudy.tasks.push({ id: this.taskCounter++, prompt: '' });
+      this.newStudy.tasks.push({
+        id: this.taskCounter++, prompt: '',
+        goalType: 'none', goalScreenId: '', goalSelector: '', goalText: '',
+      });
     },
 
     addTask() { this._addTask(); },
@@ -358,6 +387,37 @@ function setupApp() {
       if (idx >= t.length - 1) return;
       [t[idx], t[idx + 1]] = [t[idx + 1], t[idx]];
       this.newStudy.tasks = [...t];
+    },
+
+    addSurvey() {
+      const firstTask = this.newStudy.tasks[0];
+      this.newStudy.surveys.push({
+        id: this.surveyCounter++,
+        afterTaskId: firstTask ? firstTask.id : null,
+        ratingEnabled: true,  ratingPrompt: '',
+        commentEnabled: false, commentPrompt: '',
+        required: false,
+        presentation: 'panel',
+      });
+    },
+
+    removeSurvey(id) {
+      this.newStudy.surveys = this.newStudy.surveys.filter(s => s.id !== id);
+    },
+
+    // Recorded screen ids for this study — offered as suggestions in the
+    // task-goal picker (datalist, so free text still works pre-recording).
+    async _loadScreenOptions() {
+      this.screenOptions = [];
+      if (!this.studyId || !this._db) return;
+      try {
+        const { data } = await this._db
+          .from('screens')
+          .select('screen_id')
+          .eq('study_id', this.studyId)
+          .order('screen_id');
+        this.screenOptions = (data || []).map(s => s.screen_id);
+      } catch {}
     },
 
     // Fill in any missing completion-config fields with defaults (used when
@@ -392,12 +452,48 @@ function setupApp() {
         this.createError = 'Study name is required.';
         return;
       }
-      const tasks = this.newStudy.tasks
-        .filter(t => t.prompt.trim())
-        .map((t, i) => ({ id: i + 1, prompt: t.prompt.trim(), order: i }));
+      // Task ids are reassigned to 1..N on save; idMap lets surveys keep
+      // referencing the right task after empty rows are filtered out.
+      const editorTasks = this.newStudy.tasks.filter(t => t.prompt.trim());
+      const idMap = {};
+      const tasks = editorTasks.map((t, i) => {
+        idMap[t.id] = i + 1;
+        const row = { id: i + 1, prompt: t.prompt.trim(), order: i };
+        if (t.goalType === 'screen' && t.goalScreenId.trim()) {
+          row.goal = { type: 'screen', screenId: t.goalScreenId.trim().toLowerCase() };
+        } else if (t.goalType === 'click' && (t.goalSelector.trim() || t.goalText.trim())) {
+          row.goal = {
+            type: 'click',
+            selector:    t.goalSelector.trim() || null,
+            elementText: t.goalText.trim() || null,
+          };
+        }
+        return row;
+      });
       if (tasks.length === 0) {
         this.createError = 'At least one task prompt is required.';
         return;
+      }
+
+      const surveys = [];
+      for (const s of this.newStudy.surveys) {
+        if (!s.ratingEnabled && !s.commentEnabled) {
+          this.createError = 'Each survey needs a rating or comment field enabled (or remove the survey).';
+          return;
+        }
+        const taskId = idMap[s.afterTaskId];
+        if (!taskId) {
+          this.createError = 'Each survey must be attached to one of the tasks above.';
+          return;
+        }
+        surveys.push({
+          id: surveys.length + 1,
+          trigger: { type: 'after_task', taskId },
+          rating:  { enabled: s.ratingEnabled,  prompt: s.ratingPrompt.trim() },
+          comment: { enabled: s.commentEnabled, prompt: s.commentPrompt.trim() },
+          required: !!s.required,
+          presentation: s.presentation === 'overlay' ? 'overlay' : 'panel',
+        });
       }
 
       this.createSaving = true;
@@ -405,6 +501,7 @@ function setupApp() {
         name:        this.newStudy.name.trim(),
         description: this.newStudy.description.trim() || null,
         tasks,
+        surveys,
         completion:  this._cleanCompletion(this.newStudy.completion),
       };
 
