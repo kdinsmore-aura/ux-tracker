@@ -267,6 +267,8 @@ const _PANEL_CSS = `
   .sf-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
   #sf-save   { background: #40a02b; color: #fff; flex: 1; }
   #sf-cancel { background: #313244; color: #cdd6f4; flex: 1; }
+  #sf-hint { font-size: 11px; color: #f38ba8; display: none; }
+  #sf-hint.show { display: block; }
   #log-toggle {
     font-size: 11px; color: #585b70; cursor: pointer;
     background: none; border: none; padding: 0; text-align: left;
@@ -318,9 +320,10 @@ class UxtRecorderPanel extends HTMLElement {
           </div>
           <button id="btn-survey" title="Alt+Shift+S">📋 Mark Survey Point</button>
           <div id="survey-form">
+            <label><input type="checkbox" id="sf-rating" checked> Star rating (1–5)</label>
             <input type="text" id="sf-question" maxlength="200"
-                   placeholder="Survey question (e.g. How easy was that?)">
-            <label><input type="checkbox" id="sf-comment"> Add a comment box</label>
+                   placeholder="Rating prompt (e.g. How easy was that?)">
+            <label><input type="checkbox" id="sf-comment"> Comment box</label>
             <input type="text" id="sf-comment-prompt" maxlength="200"
                    placeholder="Comment prompt (optional)" style="display:none">
             <div class="sf-row">
@@ -330,6 +333,7 @@ class UxtRecorderPanel extends HTMLElement {
                 <option value="overlay">blocking overlay</option>
               </select>
             </div>
+            <div id="sf-hint">Enable a rating or a comment box.</div>
             <div class="btn-row">
               <button id="sf-save">Save Point</button>
               <button id="sf-cancel">Cancel</button>
@@ -364,8 +368,13 @@ class UxtRecorderPanel extends HTMLElement {
 
     this._q('sf-save').addEventListener('click', () => this._saveSurveyPoint());
     this._q('sf-cancel').addEventListener('click', () => this._closeSurveyForm());
+    this._q('sf-rating').addEventListener('change', (e) => {
+      this._q('sf-question').style.display = e.target.checked ? '' : 'none';
+      this._q('sf-hint').classList.remove('show');
+    });
     this._q('sf-comment').addEventListener('change', (e) => {
       this._q('sf-comment-prompt').style.display = e.target.checked ? '' : 'none';
+      this._q('sf-hint').classList.remove('show');
     });
     this._q('sf-question').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); this._saveSurveyPoint(); }
@@ -413,12 +422,15 @@ class UxtRecorderPanel extends HTMLElement {
   }
 
   _closeSurveyForm() {
+    this._q('sf-rating').checked = true;
     this._q('sf-question').value = '';
+    this._q('sf-question').style.display = '';
     this._q('sf-comment').checked = false;
     this._q('sf-comment-prompt').value = '';
     this._q('sf-comment-prompt').style.display = 'none';
     this._q('sf-required').checked = false;
     this._q('sf-presentation').value = 'panel';
+    this._q('sf-hint').classList.remove('show');
     this._q('survey-form').classList.remove('open');
   }
 
@@ -427,12 +439,19 @@ class UxtRecorderPanel extends HTMLElement {
   // screen-triggered survey (still refinable on the review page).
   _saveSurveyPoint() {
     if (!_state.isRecording) return;
+    const ratingEnabled  = this._q('sf-rating').checked;
+    const commentEnabled = this._q('sf-comment').checked;
+    if (!ratingEnabled && !commentEnabled) {
+      this._q('sf-hint').classList.add('show');
+      return;
+    }
     const point = {
       screenId:       computeScreenId(_config.screens),
       stepIndex:      _state.currentStepIndex,
       recordedAt:     new Date().toISOString(),
+      ratingEnabled,
       ratingPrompt:   this._q('sf-question').value.trim(),
-      commentEnabled: this._q('sf-comment').checked,
+      commentEnabled,
       commentPrompt:  this._q('sf-comment-prompt').value.trim(),
       required:       this._q('sf-required').checked,
       presentation:   this._q('sf-presentation').value === 'overlay' ? 'overlay' : 'panel',

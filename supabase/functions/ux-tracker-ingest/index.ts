@@ -386,11 +386,16 @@ Deno.serve(async (req: Request) => {
             .map((p: Record<string, unknown>) => {
               const sid = String(p?.screenId || '').trim().toLowerCase();
               if (!sid) return null;
+              // ratingEnabled defaults to true (absent on points from older
+              // recorder builds); a survey with neither field is coerced to
+              // rating-only so it's never an empty card.
+              const commentOn = !!p?.commentEnabled;
+              const ratingOn  = p?.ratingEnabled !== false || !commentOn;
               return {
                 id: ++nextId,
                 trigger: { type: 'screen_enter', screenId: sid },
-                rating:  { enabled: true, prompt: capText(p?.ratingPrompt) },
-                comment: { enabled: !!p?.commentEnabled, prompt: capText(p?.commentPrompt) },
+                rating:  { enabled: ratingOn, prompt: capText(p?.ratingPrompt) },
+                comment: { enabled: commentOn, prompt: capText(p?.commentPrompt) },
                 required: !!p?.required,
                 presentation: p?.presentation === 'overlay' ? 'overlay' : 'panel',
                 source: 'recorder',
