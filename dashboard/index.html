@@ -29,7 +29,9 @@
         <div class="dot"></div>
         <h1>UX Tracker</h1>
       </div>
-      <p class="gate-subtitle">Enter your Supabase credentials and study ID to view results.</p>
+      <p class="gate-subtitle">
+        Enter your Supabase credentials, researcher login, and study ID to view results.
+      </p>
 
       <div x-show="gateError" class="msg msg-error" x-text="gateError"></div>
 
@@ -44,6 +46,23 @@
         <input id="g-key" class="input mono" type="text"
                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…"
                x-model="gateCreds.key">
+      </div>
+
+      <div class="form-group">
+        <label for="g-email">Researcher Email</label>
+        <input id="g-email" class="input" type="email"
+               autocomplete="username"
+               placeholder="you@company.com"
+               x-model="gateCreds.email">
+      </div>
+      <div class="form-group">
+        <label for="g-password">Password</label>
+        <input id="g-password" class="input" type="password"
+               autocomplete="current-password"
+               placeholder="••••••••"
+               x-model="gateCreds.password"
+               @keydown.enter="gateLoad()">
+        <p class="hint">Leave blank if you're already signed in on this browser.</p>
       </div>
 
       <div class="form-group">

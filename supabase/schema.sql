@@ -219,61 +219,53 @@ ALTER TABLE sessions      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE events        ENABLE ROW LEVEL SECURITY;
 
 
--- ---- studies -----------------------------------------------
--- Anyone who knows the study ID can read it; anon and authenticated can write.
+-- Security model: the anon key is public (it ships in the prototype's
+-- <script> tag), so NO table policy is granted to anon. Participant and
+-- recorder database traffic goes through the ux-tracker-ingest Edge
+-- Function (service role — bypasses RLS, does its own validation).
+-- Researcher tools (setup + dashboard) sign in with Supabase Auth and
+-- operate as `authenticated`. Disable public signups in Auth settings,
+-- otherwise anyone could self-register as a "researcher".
 
-GRANT INSERT, UPDATE, DELETE ON studies TO anon;
+-- ---- studies (researcher CRUD) ------------------------------
 
 CREATE POLICY "studies_select"
   ON studies FOR SELECT
-  TO anon, authenticated
+  TO authenticated
   USING (true);
 
-DROP POLICY IF EXISTS "studies_insert" ON studies;
 CREATE POLICY "studies_insert"
   ON studies FOR INSERT
-  TO anon, authenticated
+  TO authenticated
   WITH CHECK (true);
 
-DROP POLICY IF EXISTS "studies_update" ON studies;
 CREATE POLICY "studies_update"
   ON studies FOR UPDATE
-  TO anon, authenticated
-  USING (true);
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
 
-DROP POLICY IF EXISTS "studies_delete" ON studies;
 CREATE POLICY "studies_delete"
   ON studies FOR DELETE
-  TO anon, authenticated
+  TO authenticated
   USING (true);
 
 
 -- ---- screens -----------------------------------------------
--- Recorder runs as anon; staleness updates come from participant sessions.
+-- Recorder/participant writes go through the Edge Function; researchers read.
 
 CREATE POLICY "screens_select"
   ON screens FOR SELECT
-  TO anon, authenticated
+  TO authenticated
   USING (true);
-
-CREATE POLICY "screens_insert"
-  ON screens FOR INSERT
-  TO anon, authenticated
-  WITH CHECK (true);
-
-CREATE POLICY "screens_update"
-  ON screens FOR UPDATE
-  TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
 
 
 -- ---- participants ------------------------------------------
--- Tracker validates participant IDs (anon read); only researchers create rows.
+-- Tracker status updates go through the Edge Function; researchers manage rows.
 
 CREATE POLICY "participants_select"
   ON participants FOR SELECT
-  TO anon, authenticated
+  TO authenticated
   USING (true);
 
 CREATE POLICY "participants_insert"
@@ -281,49 +273,38 @@ CREATE POLICY "participants_insert"
   TO authenticated
   WITH CHECK (true);
 
--- Tracker updates status as participant progresses (anon write).
 CREATE POLICY "participants_update"
   ON participants FOR UPDATE
-  TO anon
+  TO authenticated
   USING (true)
   WITH CHECK (true);
+
+CREATE POLICY "participants_delete"
+  ON participants FOR DELETE
+  TO authenticated
+  USING (true);
 
 
 -- ---- sessions ----------------------------------------------
+-- Created/updated via the Edge Function; researchers read and reset-delete.
 
 CREATE POLICY "sessions_select"
   ON sessions FOR SELECT
-  TO anon, authenticated
+  TO authenticated
   USING (true);
 
-CREATE POLICY "sessions_insert"
-  ON sessions FOR INSERT
-  TO anon
-  WITH CHECK (true);
-
-CREATE POLICY "sessions_update"
-  ON sessions FOR UPDATE
-  TO anon
-  USING (true)
-  WITH CHECK (true);
-
 -- Researcher "reset participant" deletes a participant's prior run from the
--- dashboard (events cascade-delete via FK). Consistent with the permissive
--- anon posture of the other researcher operations.
+-- dashboard (events cascade-delete via FK).
 CREATE POLICY "sessions_delete"
   ON sessions FOR DELETE
-  TO anon
+  TO authenticated
   USING (true);
 
 
 -- ---- events ------------------------------------------------
+-- Inserted via the Edge Function; researchers read.
 
 CREATE POLICY "events_select"
   ON events FOR SELECT
-  TO anon, authenticated
+  TO authenticated
   USING (true);
-
-CREATE POLICY "events_insert"
-  ON events FOR INSERT
-  TO anon
-  WITH CHECK (true);

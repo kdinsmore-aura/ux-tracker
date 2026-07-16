@@ -56,7 +56,7 @@ function dashboardApp() {
     appReady: false,
     gateChecking: true,   // true while init() determines if auto-load is possible
     hasSavedCreds: false,
-    gateCreds: { url: '', key: '' },
+    gateCreds: { url: '', key: '', email: '', password: '' },
     gateStudyId: '',
     gateError: '',
     gateLoading: false,
@@ -193,8 +193,9 @@ function dashboardApp() {
     },
 
     clearSavedCreds() {
+      try { this._db?.auth.signOut(); } catch {}
       this.hasSavedCreds = false;
-      this.gateCreds = { url: '', key: '' };
+      this.gateCreds = { url: '', key: '', email: '', password: '' };
     },
 
     async gateLoad() {
@@ -215,6 +216,27 @@ function dashboardApp() {
       this.gateLoading = true;
       try {
         this._db = window.supabase.createClient(url, key);
+
+        // Researcher auth: reuse an active session (shared with the setup
+        // tool on the same origin), otherwise sign in with email + password.
+        // The password is never persisted.
+        const { data: { session } } = await this._db.auth.getSession();
+        if (!session) {
+          const email = this.gateCreds.email.trim();
+          const password = this.gateCreds.password;
+          if (!email || !password) {
+            this.gateError = 'Researcher sign-in required — enter your email and password.';
+            this.gateLoading = false;
+            return;
+          }
+          const { error: authErr } = await this._db.auth.signInWithPassword({ email, password });
+          if (authErr) {
+            this.gateError = `Sign-in failed: ${authErr.message}`;
+            this.gateLoading = false;
+            return;
+          }
+          this.gateCreds.password = '';
+        }
 
         const { data, error } = await this._db
           .from('studies')

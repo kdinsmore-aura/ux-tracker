@@ -12,7 +12,7 @@ function setupApp() {
     _savedStep: null,
 
     // ── Step 0 — Credentials ──────────────────────────────────────────────────
-    creds: { url: '', key: '' },
+    creds: { url: '', key: '', email: '', password: '' },
     credError: '',
     credSuccess: '',
     credTesting: false,
@@ -85,10 +85,16 @@ function setupApp() {
         try {
           const { url, key } = JSON.parse(stored);
           if (url && key) {
-            this.creds = { url, key };
+            this.creds = { url, key, email: '', password: '' };
             this._initDb(url, key);
-            await this._goto(this._savedStep || 1);
-            return;
+            // Only proceed if a researcher session is still active —
+            // otherwise fall through to the gate to sign in again.
+            const { data: { session } } = await this._db.auth.getSession();
+            if (session) {
+              await this._goto(this._savedStep || 1);
+              return;
+            }
+            this.credError = 'Session expired — sign in again to continue.';
           }
         } catch {}
       }
@@ -106,6 +112,21 @@ function setupApp() {
 
     // ── Step 0 — Credentials ──────────────────────────────────────────────────
 
+    // Reuse an active researcher session if one exists; otherwise sign in
+    // with the provided email + password. The password is never persisted —
+    // supabase-js stores only the resulting session token.
+    async _signIn() {
+      const { data: { session } } = await this._db.auth.getSession();
+      if (session) return;
+      const email = this.creds.email.trim();
+      const password = this.creds.password;
+      if (!email || !password) {
+        throw new Error('Researcher sign-in required — enter your email and password.');
+      }
+      const { error } = await this._db.auth.signInWithPassword({ email, password });
+      if (error) throw new Error(`Sign-in failed: ${error.message}`);
+    },
+
     async testConnection() {
       this.credError = '';
       this.credSuccess = '';
@@ -113,6 +134,7 @@ function setupApp() {
       this.credTesting = true;
       try {
         this._initDb(this.creds.url, this.creds.key);
+        await this._signIn();
         const { data, error } = await this._db.from('studies').select('id').limit(1);
         if (error) throw error;
         this.credSuccess = `Connected — ${(data || []).length} study record(s) visible.`;
@@ -131,12 +153,14 @@ function setupApp() {
       this.credSaving = true;
       try {
         this._initDb(this.creds.url, this.creds.key);
+        await this._signIn();
         const { error } = await this._db.from('studies').select('id').limit(1);
         if (error) throw error;
         localStorage.setItem('uxt_researcher_config', JSON.stringify({
           url: this.creds.url.trim(),
           key: this.creds.key.trim(),
         }));
+        this.creds.password = '';
         await this._goto(1);
       } catch (e) {
         this.credError = `Could not connect: ${e.message}`;
@@ -147,6 +171,7 @@ function setupApp() {
     },
 
     clearCredentials() {
+      try { this._db?.auth.signOut(); } catch {}
       localStorage.removeItem('uxt_researcher_config');
       sessionStorage.removeItem('uxt_setup_state');
       this._db = null;

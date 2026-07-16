@@ -32,13 +32,11 @@ ON CONFLICT (id) DO NOTHING;
 -- storage.objects already has RLS enabled in every Supabase project;
 -- these policies layer on top of that default.
 
--- Public read: anyone with a valid object URL can view a screenshot.
--- The dashboard fetches screenshot_url values from the screens table
--- and displays them directly — no auth token required.
-CREATE POLICY "screenshots_public_select"
-  ON storage.objects FOR SELECT
-  TO anon, authenticated
-  USING (bucket_id = 'ux-tracker-screenshots');
+-- NOTE: no SELECT policy on purpose. The bucket is public, so objects
+-- are served at /object/public/* without any policy — the dashboard's
+-- screenshot URLs keep working. A broad SELECT policy would additionally
+-- let anyone LIST every file in the bucket via the API (advisor lint
+-- 0025), which leaks the filenames of all captured screenshots.
 
 -- Anon write: the UX Tracker recorder script uploads screenshots
 -- immediately after capturing a DOM fingerprint. It runs in the

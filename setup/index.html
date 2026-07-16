@@ -19,8 +19,9 @@
         <h1>UX Tracker</h1>
       </div>
       <p class="creds-subtitle">
-        Enter your Supabase project credentials to get started. These are saved
-        locally in your browser and never sent anywhere except Supabase.
+        Enter your Supabase project credentials and researcher login to get
+        started. The URL and key are saved locally in your browser; your
+        password is never stored.
       </p>
 
       <div x-show="credError" class="msg msg-error" x-text="credError"></div>
@@ -44,6 +45,32 @@
                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                x-model="creds.key"
                @keydown.enter="saveCredentials()">
+      </div>
+
+      <div class="form-group">
+        <label for="cred-email">Researcher Email</label>
+        <input id="cred-email"
+               class="input"
+               type="email"
+               autocomplete="username"
+               placeholder="you@company.com"
+               x-model="creds.email"
+               @keydown.enter="saveCredentials()">
+      </div>
+
+      <div class="form-group">
+        <label for="cred-password">Password</label>
+        <input id="cred-password"
+               class="input"
+               type="password"
+               autocomplete="current-password"
+               placeholder="••••••••"
+               x-model="creds.password"
+               @keydown.enter="saveCredentials()">
+        <p class="hint">
+          Your researcher account in this Supabase project
+          (Dashboard → Authentication → Users).
+        </p>
       </div>
 
       <div class="creds-actions">
