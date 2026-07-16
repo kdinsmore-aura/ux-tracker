@@ -50,7 +50,8 @@ let _surveys             = [];    // study.surveys (after_task triggers)
 let _firedSurveys        = [];    // survey ids already shown this session
 let _surveyResponses     = [];    // accumulated responses (mirrored to the session row)
 let _surveyActive        = false; // a survey card/overlay is currently displayed
-let _pendingCompletionMs = null;  // completion screen deferred until survey submit
+let _surveyQueue         = [];    // surveys waiting to be shown (one at a time)
+let _pendingCompletionMs = null;  // completion screen deferred until surveys done
 
 // ─── Session state helpers ────────────────────────────────────────────────────
 
@@ -331,26 +332,52 @@ function _completeTask(screenId) {
 
 // ─── Mid-study surveys ────────────────────────────────────────────────────────
 
+// Surveys show one at a time; anything that fires while one is on screen
+// (cascading task completions, a screen trigger landing mid-survey) queues
+// behind it. A survey id is marked fired at enqueue time — once per session.
+function _enqueueSurvey(survey, screenId) {
+  if (_firedSurveys.includes(survey.id)) return;
+  _firedSurveys.push(survey.id);
+  _saveState();
+  _surveyQueue.push({ survey, screenId });
+  _showNextSurvey();
+}
+
 function _maybeFireSurvey(completedTask, screenId) {
   const survey = _surveys.find((s) =>
     s?.trigger?.type === 'after_task' &&
     s.trigger.taskId === completedTask.id &&
     !_firedSurveys.includes(s.id));
-  if (!survey || !_panel) return;
+  if (survey) _enqueueSurvey(survey, screenId);
+}
 
-  _firedSurveys.push(survey.id);
+// Screen-triggered surveys (e.g. points marked during recording) fire the
+// first time the participant reaches the trigger screen, by any route.
+function _maybeFireScreenSurveys(screenId) {
+  for (const s of _surveys) {
+    if (s?.trigger?.type === 'screen_enter' &&
+        !_firedSurveys.includes(s.id) &&
+        _screenMatchesGoal(screenId, s.trigger.screenId)) {
+      _enqueueSurvey(s, screenId);
+    }
+  }
+}
+
+function _showNextSurvey() {
+  if (_surveyActive || !_panel || _surveyQueue.length === 0) return;
+  const { survey, screenId } = _surveyQueue.shift();
   _surveyActive = true;
-  _saveState();
 
   _panel.showSurvey(survey, (result) => {
     _surveyActive = false;
     _surveyResponses.push({
       surveyId:            survey.id,
+      trigger:             survey.trigger,
       rating:              result.rating ?? null,
       comment:             result.comment ?? null,
       skipped:             !!result.skipped,
       screenId,
-      taskIndex:           _currentTaskIndex - 1,
+      taskIndex:           _currentTaskIndex,
       msSinceSessionStart: Date.now() - _sessionStartTime,
       submittedAt:         new Date().toISOString(),
     });
@@ -358,6 +385,10 @@ function _maybeFireSurvey(completedTask, screenId) {
     updateSession(_sessionId, _participantId, { survey_responses: _surveyResponses })
       .catch((err) => console.error('[UXTracker Participant] survey save error:', err));
 
+    if (_surveyQueue.length > 0) {
+      _showNextSurvey();
+      return;
+    }
     if (_pendingCompletionMs != null) {
       const ms = _pendingCompletionMs;
       _pendingCompletionMs = null;
@@ -463,6 +494,7 @@ async function _handleNavigation() {
 
   _runScreenChangeDetection(_sessionId, newScreenId).catch(() => {});
   _evaluateActiveGoal(newScreenId, null);
+  _maybeFireScreenSurveys(newScreenId);
   _updatePanel();
 }
 
@@ -1140,8 +1172,9 @@ export default async function initParticipant(config, study) {
   _renderPanel();
   _currentScreenId = computeScreenId(_config.screens);
 
-  // 10. Goal mode: full-page prototypes re-boot the tracker on every page
-  // load, so evaluate the active task's goal against the landing screen —
-  // this is how screen goals complete across real navigations.
+  // 10. Full-page prototypes re-boot the tracker on every page load, so
+  // evaluate the landing screen: the active task's goal (this is how screen
+  // goals complete across real navigations) and any screen-triggered surveys.
   _evaluateActiveGoal(_currentScreenId, null);
+  _maybeFireScreenSurveys(_currentScreenId);
 }

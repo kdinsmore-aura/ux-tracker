@@ -96,8 +96,13 @@ export async function updateStudyScreenChangesFlag(studyId) {
   return ingest('updateStudyScreenChangesFlag', { studyId });
 }
 
-export async function updateStudyIdealPath(studyId, idealPath, status) {
-  return ingest('updateStudyIdealPath', { studyId, idealPath, status });
+/**
+ * Save the recorded ideal path (and optionally the survey points marked
+ * during recording — the server converts them into screen-triggered surveys,
+ * replacing previous recorder-sourced ones and keeping manual ones).
+ */
+export async function updateStudyIdealPath(studyId, idealPath, status, recordedSurveys = null) {
+  return ingest('updateStudyIdealPath', { studyId, idealPath, status, recordedSurveys });
 }
 
 // ─── Screen operations (ingest) ──────────────────────────────────────────────

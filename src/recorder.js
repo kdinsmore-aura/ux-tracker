@@ -11,7 +11,8 @@ import { RECORDING_SESSION_KEY } from './utils/config.js';
 
 // ─── sessionStorage helpers ───────────────────────────────────────────────────
 
-const RECORDING_PATH_KEY = 'uxt_rec_path';
+const RECORDING_PATH_KEY    = 'uxt_rec_path';
+const RECORDING_SURVEYS_KEY = 'uxt_rec_surveys';
 
 function _loadSavedPath() {
   try {
@@ -25,10 +26,22 @@ function _savePath(path) {
   try { sessionStorage.setItem(RECORDING_PATH_KEY, JSON.stringify(path)); } catch (_) {}
 }
 
+function _loadSavedSurveyPoints() {
+  try {
+    const data = JSON.parse(sessionStorage.getItem(RECORDING_SURVEYS_KEY) || 'null');
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
+}
+
+function _saveSurveyPoints(points) {
+  try { sessionStorage.setItem(RECORDING_SURVEYS_KEY, JSON.stringify(points)); } catch (_) {}
+}
+
 function _clearRecordingSession() {
   try {
     sessionStorage.removeItem(RECORDING_SESSION_KEY);
     sessionStorage.removeItem(RECORDING_PATH_KEY);
+    sessionStorage.removeItem(RECORDING_SURVEYS_KEY);
   } catch (_) {}
 }
 
@@ -39,6 +52,7 @@ const _state = {
   idealPath: [],
   capturedScreens: new Map(),
   pendingShots: [],
+  surveyPoints: [],   // { screenId, stepIndex, recordedAt } — mid-study survey markers
   currentStepIndex: 0,
   isRecording: false,
   sessionStartTime: 0,
@@ -229,6 +243,7 @@ const _PANEL_CSS = `
   button:hover { opacity: .82; }
   #btn-capture { background: #313244; color: #cdd6f4; flex: 1; }
   #btn-mark    { background: #40a02b; color: #fff; flex: 1; }
+  #btn-survey  { background: #89b4fa; color: #1e1e2e; width: 100%; }
   #btn-finish  { background: #f38ba8; color: #1e1e2e; width: 100%; }
   #log-toggle {
     font-size: 11px; color: #585b70; cursor: pointer;
@@ -274,10 +289,12 @@ class UxtRecorderPanel extends HTMLElement {
           <div id="task-desc">Walk through the ideal path for this study.</div>
           <div class="meta" id="step-counter">0 steps recorded</div>
           <div class="meta" id="screen-counter">0 screens captured</div>
+          <div class="meta" id="survey-counter">0 survey points</div>
           <div class="btn-row">
             <button id="btn-capture" title="Alt+Shift+C">Capture Screen</button>
             <button id="btn-mark" title="Alt+Shift+M">Mark Step</button>
           </div>
+          <button id="btn-survey" title="Alt+Shift+S">📋 Mark Survey Point</button>
           <button id="btn-finish">Finish Recording</button>
           <button id="log-toggle">▶ Show step log</button>
           <div id="log"></div>
@@ -298,6 +315,7 @@ class UxtRecorderPanel extends HTMLElement {
 
     this._q('btn-capture').addEventListener('click', () => captureCurrentScreen());
     this._q('btn-mark').addEventListener('click', () => this._markStep());
+    this._q('btn-survey').addEventListener('click', () => this._markSurveyPoint());
     this._q('btn-finish').addEventListener('click', () => this._showConfirm());
     this._q('btn-yes').addEventListener('click', () => this._saveAndFinish());
     this._q('btn-no').addEventListener('click', () => this._cancelConfirm());
@@ -307,6 +325,7 @@ class UxtRecorderPanel extends HTMLElement {
     this._keyHandler = (e) => {
       if (e.altKey && e.shiftKey && e.key === 'C') { e.preventDefault(); captureCurrentScreen(); }
       if (e.altKey && e.shiftKey && e.key === 'M') { e.preventDefault(); this._markStep(); }
+      if (e.altKey && e.shiftKey && e.key === 'S') { e.preventDefault(); this._markSurveyPoint(); }
     };
     document.addEventListener('keydown', this._keyHandler);
   }
@@ -329,6 +348,31 @@ class UxtRecorderPanel extends HTMLElement {
 
   updateScreenCount(n) {
     this._q('screen-counter').textContent = `${n} screen${n !== 1 ? 's' : ''} captured`;
+  }
+
+  updateSurveyCount(n) {
+    this._q('survey-counter').textContent = `${n} survey point${n !== 1 ? 's' : ''}`;
+  }
+
+  // Mark the current screen as a mid-study survey point. Saved with the path
+  // on finish as a screen-triggered survey the researcher refines in setup.
+  _markSurveyPoint() {
+    if (!_state.isRecording) return;
+    const point = {
+      screenId:   computeScreenId(_config.screens),
+      stepIndex:  _state.currentStepIndex,
+      recordedAt: new Date().toISOString(),
+    };
+    _state.surveyPoints.push(point);
+    _saveSurveyPoints(_state.surveyPoints);
+    this.updateSurveyCount(_state.surveyPoints.length);
+
+    const log = this._q('log');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.textContent = `📋  ${point.screenId}  [survey point]`;
+    log.appendChild(entry);
+    log.scrollTop = log.scrollHeight;
   }
 
   addStepToLog(step) {
@@ -372,10 +416,12 @@ class UxtRecorderPanel extends HTMLElement {
   }
 
   _showConfirm() {
-    const steps = _state.idealPath.length;
+    const steps   = _state.idealPath.length;
     const screens = _state.capturedScreens.size;
+    const points  = _state.surveyPoints.length;
     this._q('confirm-msg').textContent =
-      `Save ideal path with ${steps} step${steps !== 1 ? 's' : ''} across ${screens} screen${screens !== 1 ? 's' : ''}?`;
+      `Save ideal path with ${steps} step${steps !== 1 ? 's' : ''} across ${screens} screen${screens !== 1 ? 's' : ''}` +
+      (points ? ` and ${points} survey point${points !== 1 ? 's' : ''}` : '') + '?';
     this._q('body').style.display = 'none';
     this._q('confirm-box').classList.add('open');
   }
@@ -410,7 +456,7 @@ class UxtRecorderPanel extends HTMLElement {
     await Promise.allSettled(_state.pendingShots);
 
     try {
-      await updateStudyIdealPath(_state.studyId, _state.idealPath, 'active');
+      await updateStudyIdealPath(_state.studyId, _state.idealPath, 'active', _state.surveyPoints);
     } catch (err) {
       console.error('[UXTracker Recorder] Failed to save ideal path:', err);
     }
@@ -448,6 +494,7 @@ export default async function initRecorder(config, study) {
     _state.idealPath = savedPath;
     _state.currentStepIndex = savedPath.length;
   }
+  _state.surveyPoints = _loadSavedSurveyPoints();
 
   // Derive the framework base URL from whichever script attribute is present
   const scriptEl = document.querySelector('script[data-study]')
@@ -473,9 +520,12 @@ export default async function initRecorder(config, study) {
     : (study.description || study.name || null);
   if (taskText) _panel.setTaskDescription(taskText);
 
-  // Sync step counter if restoring a prior session
+  // Sync counters if restoring a prior session
   if (_state.idealPath.length > 0) {
     _panel.updateStepCount(_state.idealPath.length);
+  }
+  if (_state.surveyPoints.length > 0) {
+    _panel.updateSurveyCount(_state.surveyPoints.length);
   }
 
   // Intercept SPA navigation

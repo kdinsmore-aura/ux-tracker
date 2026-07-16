@@ -351,17 +351,54 @@ Deno.serve(async (req: Request) => {
       }
 
       case 'updateStudyIdealPath': {
-        const { studyId, idealPath, status } = payload;
+        const { studyId, idealPath, status, recordedSurveys } = payload;
         if (!studyId) return bad('studyId is required');
         if (!idealPath) return bad('idealPath is required');
         if (status !== 'active') return bad('status must be active');
+
+        const update: Record<string, unknown> = {
+          ideal_path: idealPath,
+          status: 'active',
+          updated_at: new Date().toISOString(),
+        };
+
+        // Survey points marked during recording become screen-triggered
+        // surveys with default config (refined later in setup). Recorder-
+        // sourced surveys from a previous recording are replaced; manually
+        // authored surveys are preserved. The server builds the survey
+        // objects itself — the client only supplies screen ids.
+        if (Array.isArray(recordedSurveys)) {
+          const { data: studyRow, error: sErr } = await db
+            .from('studies')
+            .select('surveys')
+            .eq('id', studyId)
+            .maybeSingle();
+          if (sErr) {
+            console.error('updateStudyIdealPath surveys lookup:', sErr);
+            return fail('Failed to load existing surveys');
+          }
+          const existing = Array.isArray(studyRow?.surveys) ? studyRow.surveys as Record<string, unknown>[] : [];
+          const manual = existing.filter((s) => s?.source !== 'recorder');
+          let nextId = manual.reduce((m, s) => Math.max(m, Number(s?.id) || 0), 0);
+          const recorded = recordedSurveys
+            .slice(0, 20)
+            .map((p: Record<string, unknown>) => String(p?.screenId || '').trim().toLowerCase())
+            .filter((sid: string) => sid.length > 0)
+            .map((sid: string) => ({
+              id: ++nextId,
+              trigger: { type: 'screen_enter', screenId: sid },
+              rating:  { enabled: true, prompt: '' },
+              comment: { enabled: false, prompt: '' },
+              required: false,
+              presentation: 'panel',
+              source: 'recorder',
+            }));
+          update.surveys = [...manual, ...recorded];
+        }
+
         const { error } = await db
           .from('studies')
-          .update({
-            ideal_path: idealPath,
-            status: 'active',
-            updated_at: new Date().toISOString(),
-          })
+          .update(update)
           .eq('id', studyId);
         if (error) {
           console.error('updateStudyIdealPath:', error);

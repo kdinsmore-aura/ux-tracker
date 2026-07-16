@@ -302,13 +302,16 @@ function setupApp() {
         }),
         surveys: (Array.isArray(study.surveys) ? study.surveys : []).map((s, i) => ({
           id: i + 1,
+          triggerType: s.trigger?.type === 'screen_enter' ? 'screen_enter' : 'after_task',
           afterTaskId: s.trigger?.taskId ?? null,
+          screenId: s.trigger?.screenId || '',
           ratingEnabled: !!s.rating?.enabled,
           ratingPrompt: s.rating?.prompt || '',
           commentEnabled: !!s.comment?.enabled,
           commentPrompt: s.comment?.prompt || '',
           required: !!s.required,
           presentation: s.presentation === 'overlay' ? 'overlay' : 'panel',
+          source: s.source === 'recorder' ? 'recorder' : null,
         })),
         completion: this._normalizeCompletion(study.completion),
       };
@@ -393,11 +396,14 @@ function setupApp() {
       const firstTask = this.newStudy.tasks[0];
       this.newStudy.surveys.push({
         id: this.surveyCounter++,
+        triggerType: 'after_task',
         afterTaskId: firstTask ? firstTask.id : null,
+        screenId: '',
         ratingEnabled: true,  ratingPrompt: '',
         commentEnabled: false, commentPrompt: '',
         required: false,
         presentation: 'panel',
+        source: null,
       });
     },
 
@@ -481,14 +487,28 @@ function setupApp() {
           this.createError = 'Each survey needs a rating or comment field enabled (or remove the survey).';
           return;
         }
-        const taskId = idMap[s.afterTaskId];
-        if (!taskId) {
-          this.createError = 'Each survey must be attached to one of the tasks above.';
-          return;
+        let trigger;
+        if (s.triggerType === 'screen_enter') {
+          const sid = (s.screenId || '').trim().toLowerCase();
+          if (!sid) {
+            this.createError = 'Each screen-triggered survey needs a screen.';
+            return;
+          }
+          trigger = { type: 'screen_enter', screenId: sid };
+        } else {
+          const taskId = idMap[s.afterTaskId];
+          if (!taskId) {
+            this.createError = 'Each survey must be attached to one of the tasks above.';
+            return;
+          }
+          trigger = { type: 'after_task', taskId };
         }
+        // Saving from setup takes ownership: the survey is no longer marked
+        // recorder-sourced, so a later re-recording won't overwrite the
+        // researcher's edits (it may add fresh points instead).
         surveys.push({
           id: surveys.length + 1,
-          trigger: { type: 'after_task', taskId },
+          trigger,
           rating:  { enabled: s.ratingEnabled,  prompt: s.ratingPrompt.trim() },
           comment: { enabled: s.commentEnabled, prompt: s.commentPrompt.trim() },
           required: !!s.required,

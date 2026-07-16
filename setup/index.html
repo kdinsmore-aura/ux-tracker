@@ -300,8 +300,10 @@
         <div class="form-group">
           <label>Mid-study Surveys</label>
           <p class="hint" style="margin-bottom:10px">
-            Poll the participant the moment a chosen task completes — a quick
-            rating and/or comment, shown in the task panel or as a blocking overlay.
+            Poll the participant mid-study — a quick rating and/or comment when a
+            task completes or a screen is reached. Points marked with
+            <strong>📋 Mark Survey Point</strong> while recording appear here
+            automatically; refine their prompts below.
           </p>
 
           <template x-for="(s, si) in newStudy.surveys" :key="s.id">
@@ -312,20 +314,33 @@
               </div>
 
               <div class="survey-row">
-                <span class="task-goal-label">After task</span>
+                <span class="task-goal-label">When</span>
                 <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                        x-model="s.triggerType">
+                  <option value="after_task">a task completes</option>
+                  <option value="screen_enter">a screen is reached</option>
+                </select>
+                <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                        x-show="s.triggerType === 'after_task'"
                         x-model.number="s.afterTaskId">
                   <template x-for="(t, ti) in newStudy.tasks" :key="t.id">
                     <option :value="t.id"
                             x-text="(ti + 1) + '. ' + (t.prompt || '(untitled)')"></option>
                   </template>
                 </select>
+                <input class="input mono" style="flex:1;min-width:160px;padding:6px 8px;font-size:12px"
+                       x-show="s.triggerType === 'screen_enter'"
+                       list="screen-options"
+                       placeholder="/checkout/confirmation"
+                       x-model="s.screenId">
                 <span class="task-goal-label" style="margin-left:10px">shown as</span>
                 <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
                         x-model="s.presentation">
                   <option value="panel">panel card</option>
                   <option value="overlay">blocking overlay</option>
                 </select>
+                <span class="badge badge-draft" x-show="s.source === 'recorder'"
+                      title="Created with Mark Survey Point during recording">from recording</span>
               </div>
 
               <label class="cfg-check" style="margin-top:10px">

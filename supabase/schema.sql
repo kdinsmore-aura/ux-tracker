@@ -25,9 +25,12 @@ CREATE TABLE studies (
   -- Completion-screen config: { thankYou, rating:{enabled,prompt},
   --   comment:{enabled,prompt}, required }
   completion         jsonb       NOT NULL DEFAULT '{}',
-  -- Mid-study surveys: [{ id, trigger:{type:'after_task', taskId},
+  -- Mid-study surveys: [{ id,
+  --   trigger: { type:'after_task', taskId } | { type:'screen_enter', screenId },
   --   rating:{enabled,prompt}, comment:{enabled,prompt},
-  --   required, presentation:'panel'|'overlay' }]
+  --   required, presentation:'panel'|'overlay',
+  --   source?: 'recorder' — created via "Mark Survey Point" while recording;
+  --     replaced wholesale on re-record (manual surveys are preserved) }]
   surveys            jsonb       NOT NULL DEFAULT '[]',
   status             text        NOT NULL DEFAULT 'draft',
   has_screen_changes boolean     NOT NULL DEFAULT false,
