@@ -50,6 +50,9 @@ function setupApp() {
     protoBaseUrl: '',
     participantLabels: '',
     generatedLinks: [],
+    existingLinks: [],       // all participants already created for this study
+    existingLoading: false,
+    copiedExistingId: null,
     linksGenerating: false,
     linksError: '',
     copiedSnippetMinimal: false,
@@ -205,6 +208,14 @@ function setupApp() {
       }));
       if (step === 1) await this._loadStudies();
       if (step === 4) await this._loadPath();
+      if (step === 5) {
+        // Restore the base URL last used for this study so existing links
+        // render as full, resendable URLs.
+        if (!this.protoBaseUrl.trim() && this.studyId) {
+          this.protoBaseUrl = localStorage.getItem(`uxt_proto_base_${this.studyId}`) || '';
+        }
+        await this._loadExistingLinks();
+      }
     },
 
     stepClass(n) {
@@ -556,6 +567,38 @@ function setupApp() {
 
     // ── Step 5 — Generate links ───────────────────────────────────────────────
 
+    // All participants already created for this study, so previously generated
+    // links are visible (no accidental repeats; easy to re-send a reminder).
+    async _loadExistingLinks() {
+      if (!this.studyId) return;
+      this.existingLoading = true;
+      try {
+        const { data, error } = await this._db
+          .from('participants')
+          .select('id, label, status, created_at')
+          .eq('study_id', this.studyId)
+          .order('created_at', { ascending: true });
+        if (error) throw error;
+        this.existingLinks = data || [];
+      } catch (e) {
+        this.linksError = `Failed to load existing links: ${e.message}`;
+      } finally {
+        this.existingLoading = false;
+      }
+    },
+
+    participantUrl(id) {
+      const base = this.protoBaseUrl.trim().split('?')[0];
+      const qs = `?study=${encodeURIComponent(this.studyId)}&participant=${encodeURIComponent(id)}`;
+      return base ? `${base}${qs}` : qs;
+    },
+
+    async copyExistingUrl(id) {
+      await navigator.clipboard.writeText(this.participantUrl(id));
+      this.copiedExistingId = id;
+      setTimeout(() => { this.copiedExistingId = null; }, 1500);
+    },
+
     async generateLinks() {
       this.linksError = '';
       const count = parseInt(this.linkCount, 10);
@@ -580,9 +623,12 @@ function setupApp() {
 
       this.linksGenerating = true;
       try {
+        // Continue auto-numbering after existing participants so a second
+        // batch doesn't repeat P01, P02, …
+        const offset = this.existingLinks.length;
         const rows = Array.from({ length: count }, (_, i) => ({
           study_id:   this.studyId,
-          label:      labels[i] || `P${String(i + 1).padStart(2, '0')}`,
+          label:      labels[i] || `P${String(offset + i + 1).padStart(2, '0')}`,
           status:     'invited',
           invited_at: new Date().toISOString(),
         }));
@@ -600,6 +646,8 @@ function setupApp() {
           status: p.status,
           url:    `${cleanBase}?study=${encodeURIComponent(this.studyId)}&participant=${encodeURIComponent(p.id)}`,
         }));
+        try { localStorage.setItem(`uxt_proto_base_${this.studyId}`, base); } catch {}
+        await this._loadExistingLinks();
       } catch (e) {
         this.linksError = `Failed to generate links: ${e.message}`;
       } finally {

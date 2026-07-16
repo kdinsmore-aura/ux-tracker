@@ -513,6 +513,12 @@ input[type="number"].input { max-width: 120px; }
 .badge-active { background: #D1FAE5; color: #065F46; }
 .badge-closed { background: #FEE2E2; color: #991B1B; }
 
+/* Participant statuses (existing-links table on the Generate Links step) */
+.badge-invited     { background: var(--subtle); color: var(--text-2); }
+.badge-in_progress { background: #FEF3C7; color: #92400E; }
+.badge-completed   { background: #D1FAE5; color: #065F46; }
+.badge-abandoned   { background: #FEE2E2; color: #991B1B; }
+
 .warn-icon {
   display: inline-flex;
   align-items: center;

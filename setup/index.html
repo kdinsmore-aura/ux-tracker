@@ -575,6 +575,52 @@
 
         </div><!-- /results -->
 
+        <!-- All participant links previously generated for this study -->
+        <div style="margin-top:28px" x-show="existingLoading || existingLinks.length > 0">
+          <p class="section-label"
+             x-text="'All participant links (' + existingLinks.length + ')'"></p>
+          <p class="hint" style="margin-bottom:10px">
+            Every link already generated for this study — copy one to re-send a
+            reminder instead of creating a duplicate.
+            <span x-show="!protoBaseUrl.trim()">
+              Enter the Prototype Base URL above to show full invite URLs.
+            </span>
+          </p>
+
+          <div class="loading-row" x-show="existingLoading">
+            <div class="spinner"></div>
+            <span>Loading existing links…</span>
+          </div>
+
+          <div class="links-table-wrap" x-show="!existingLoading">
+            <table class="links-table">
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Status</th>
+                  <th>Invite URL</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="p in existingLinks" :key="p.id">
+                  <tr>
+                    <td class="cell-label" x-text="p.label"></td>
+                    <td><span class="badge" :class="'badge-' + p.status" x-text="p.status"></span></td>
+                    <td class="cell-url" x-text="participantUrl(p.id)"></td>
+                    <td>
+                      <button class="btn btn-ghost btn-xs" @click="copyExistingUrl(p.id)">
+                        <span x-show="copiedExistingId !== p.id">Copy</span>
+                        <span class="copied-tip" x-show="copiedExistingId === p.id">Copied!</span>
+                      </button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div><!-- /existing links -->
+
         <div class="divider"></div>
 
         <div class="btn-row">
