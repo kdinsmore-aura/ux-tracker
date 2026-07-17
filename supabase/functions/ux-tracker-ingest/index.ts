@@ -30,6 +30,7 @@ const ALLOWED_SESSION_UPDATE_FIELDS = new Set([
   'survey_responses',
   'current_task_index',
   'completed_tasks',
+  'completed_via',
 ]);
 
 const ALLOWED_PARTICIPANT_EXTRA_FIELDS = new Set([

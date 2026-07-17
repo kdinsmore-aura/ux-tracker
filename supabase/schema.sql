@@ -102,10 +102,18 @@ CREATE TABLE sessions (
   -- Task-level progress (goal mode); step columns track the reference path
   current_task_index    integer     NOT NULL DEFAULT 0,
   completed_tasks       integer     NOT NULL DEFAULT 0,
+  -- How the session completed:
+  --   'path'       — every recorded click matched in order
+  --   'goals'      — all task goals met (any route)
+  --   'end_screen' — deviated from the recorded path but reached the screen
+  --                  the recording stopped on
+  completed_via         text,
   created_at            timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT sessions_status_check
-    CHECK (status IN ('in_progress', 'completed', 'abandoned'))
+    CHECK (status IN ('in_progress', 'completed', 'abandoned')),
+  CONSTRAINT sessions_completed_via_check
+    CHECK (completed_via IS NULL OR completed_via IN ('path', 'goals', 'end_screen'))
 );
 
 -- Resolve circular FK: participants.session_id → sessions.id

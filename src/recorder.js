@@ -724,16 +724,22 @@ class UxtRecorderPanel extends HTMLElement {
     // last step as a review-only "end" card. Deliberately NOT a new ideal_path
     // step: participant completion is measured by ideal_path length, so an extra
     // non-clickable step would make sessions impossible to finish.
-    try {
-      const blob = await _renderViewportBlob();
-      const last = _state.idealPath[_state.idealPath.length - 1];
-      if (blob && last) {
-        const screenId = computeScreenId(_config.screens);
-        last.endScreenshotUrl = await uploadScreenshot(_state.studyId, `end-${screenId}`, blob);
-        last.endScreenId = screenId;
+    // endScreenId is recorded even when the screenshot fails — participants
+    // who deviate off-path complete by reaching this screen, so it must not
+    // depend on a successful upload.
+    const last = _state.idealPath[_state.idealPath.length - 1];
+    if (last) {
+      last.endScreenId = computeScreenId(_config.screens);
+      try {
+        const blob = await _renderViewportBlob();
+        if (blob) {
+          last.endScreenshotUrl = await uploadScreenshot(
+            _state.studyId, `end-${last.endScreenId}`, blob,
+          );
+        }
+      } catch (err) {
+        console.error('[UXTracker Recorder] End screen capture failed:', err);
       }
-    } catch (err) {
-      console.error('[UXTracker Recorder] End screen capture failed:', err);
     }
 
     // Wait for any in-flight per-step screenshots before persisting the path.

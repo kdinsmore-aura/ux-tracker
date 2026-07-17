@@ -945,7 +945,7 @@ function dashboardApp() {
       try {
         const { data, error } = await this._db
           .from('events')
-          .select('id, event_type, step_index, element_selector, element_text, viewport_x, viewport_y, is_on_path, is_mis_click, advances_step, ms_since_session_start, timestamp')
+          .select('id, event_type, step_index, screen_id, element_selector, element_text, viewport_x, viewport_y, is_on_path, is_mis_click, advances_step, ms_since_session_start, timestamp')
           .eq('session_id', session.id)
           .order('ms_since_session_start', { ascending: true });
 
@@ -995,6 +995,71 @@ function dashboardApp() {
           timeMs,
         };
       });
+    },
+
+    // ── Route taken (session drawer) ─────────────────────────────────────────
+    // The actual screen-by-screen route, reconstructed from every event's
+    // screen_id in time order (clicks included — full page loads don't emit
+    // screen_enter, so clicks are what reveal those navigations).
+
+    completedViaLabel(v) {
+      return {
+        path:       'Followed the recorded path',
+        goals:      'Completed all task goals',
+        end_screen: 'Reached the end screen off-path',
+      }[v] || '—';
+    },
+
+    _normScreen(s) {
+      const x = String(s || '').toLowerCase().trim();
+      return x.length > 1 ? x.replace(/\/+$/, '') : x;
+    },
+
+    // The recorded route: unique-consecutive screens of the ideal path, plus
+    // the end screen the recording stopped on (when it differs).
+    get drawerIdealRoute() {
+      const path = this.study?.ideal_path || [];
+      const route = [];
+      for (const step of path) {
+        const sid = this._normScreen(step.screenId);
+        if (sid && route[route.length - 1] !== sid) route.push(sid);
+      }
+      const last = path[path.length - 1];
+      const end = this._normScreen(last?.endScreenId || '');
+      if (end && route[route.length - 1] !== end) route.push(end);
+      return route;
+    },
+
+    // Chips for the drawer: each screen the participant visited, marked
+    // on-ideal (matches the recorded route, in forward order) or detour.
+    // Backtracks count as detours — they deviate from forward progress.
+    get drawerRoute() {
+      if (!this.drawerSession) return [];
+      const route = [];
+      for (const ev of this.drawerEvents) {
+        const sid = this._normScreen(ev.screen_id);
+        if (sid && route[route.length - 1]?.screen !== sid) {
+          route.push({ screen: sid, ms: ev.ms_since_session_start || 0 });
+        }
+      }
+
+      const ideal = this.drawerIdealRoute;
+      const endScreen = ideal[ideal.length - 1] || null;
+      let ptr = 0;
+      return route.map((r, i) => {
+        const idx = ideal.indexOf(r.screen, ptr);
+        const onIdeal = idx >= 0;
+        if (onIdeal) ptr = idx + 1;
+        return {
+          ...r,
+          onIdeal,
+          isEnd: i === route.length - 1 && !!endScreen && r.screen === endScreen,
+        };
+      });
+    },
+
+    get drawerDetourCount() {
+      return this.drawerRoute.filter(r => !r.onIdeal).length;
     },
 
     timelineDotClass(ev) {

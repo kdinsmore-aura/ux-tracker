@@ -604,6 +604,14 @@ html, body {
 .badge-draft       { background: var(--subtle); color: var(--text-2); }
 .badge-closed      { background: #FEE2E2; color: #991B1B; }
 
+.badge-offpath {
+  background: var(--warn-bg);
+  color: #92400E;
+  border: 1px solid var(--warn-border);
+  margin-left: 6px;
+  cursor: help;
+}
+
 .change-icon {
   display: inline-flex;
   align-items: center;
@@ -616,6 +624,85 @@ html, body {
   font-weight: 800;
   cursor: help;
 }
+
+
+/* ── Route taken (session drawer) ───────────────────────────────────────────── */
+
+.route-summary {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+.route-summary-detours { color: #92400E; font-weight: 600; }
+.route-summary-clean   { color: #065F46; font-weight: 600; }
+
+.route-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 0;
+}
+
+.route-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.route-arrow {
+  color: var(--text-3);
+  font-size: 12px;
+  padding: 0 5px;
+  flex-shrink: 0;
+}
+
+.route-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+}
+.route-chip > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+
+.route-chip.on-ideal {
+  background: #D1FAE5;
+  color: #065F46;
+  border: 1px solid #A7F3D0;
+}
+.route-chip.detour {
+  background: var(--warn-bg);
+  color: #92400E;
+  border: 1px solid var(--warn-border);
+}
+
+.route-end-flag { flex-shrink: 0; }
+
+.route-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.route-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.route-swatch {
+  width: 12px; height: 12px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.route-swatch.on-ideal { background: #D1FAE5; border: 1px solid #A7F3D0; }
+.route-swatch.detour   { background: var(--warn-bg); border: 1px solid var(--warn-border); }
 
 
 /* ── Buttons ────────────────────────────────────────────────────────────────── */

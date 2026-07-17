@@ -44,6 +44,14 @@ let _sortedTasks      = [];  // study.tasks sorted by .order
 // then task-driven (any route to the goal counts); the recorded ideal path
 // is scored for analytics only.
 let _goalMode            = false;
+// End-screen fallback (no-goal mode): the screen the recording stopped on.
+// A participant who deviates from the recorded path but reaches this screen
+// still completes — the strict click-matching cursor alone would leave them
+// stranded. _visitedOtherScreen guards studies whose end screen IS the entry
+// screen (loops): completion only fires after they've been somewhere else.
+let _endScreenId         = '';
+let _visitedOtherScreen  = false;
+let _sessionCompleted    = false; // guards double-completion across triggers
 let _currentTaskIndex    = 0;
 let _completedTasks      = 0;
 let _surveys             = [];    // study.surveys (after_task triggers)
@@ -70,6 +78,7 @@ function _getState() {
     completedTasks:   _completedTasks,
     firedSurveys:     _firedSurveys,
     surveyResponses:  _surveyResponses,
+    visitedOtherScreen: _visitedOtherScreen,
   };
 }
 
@@ -380,7 +389,7 @@ function _completeTask(screenId) {
   _maybeFireSurvey(task, screenId);
 
   if (_currentTaskIndex >= _sortedTasks.length) {
-    _completeSession().catch((err) => {
+    _completeSession('goals').catch((err) => {
       console.error('[UXTracker Participant] Session completion error:', err);
     });
     return;
@@ -395,6 +404,45 @@ function _completeTask(screenId) {
   // The next task's goal may already be satisfied on this screen (or the
   // task may have no goal) — cascade immediately.
   _evaluateActiveGoal(screenId, null);
+}
+
+// ─── End-screen fallback completion (no-goal mode) ────────────────────────────
+
+// In strict click-matching mode a deviating participant can reach the exact
+// screen the recording stopped on yet never complete, because the recorded
+// clicks were never matched. Treat arriving at that end screen as completion.
+//
+// Deliberately inert in goal mode: screen goals already complete by any
+// route, and a click goal ("click Save") must not be satisfied by merely
+// arriving on the screen that hosts the button.
+//
+// Edge cases handled:
+//  - End screen == entry screen (recording looped home, or the prototype
+//    base URL is the end screen): completion requires having visited a
+//    different screen first, so landing never instantly completes.
+//  - Single-screen SPAs where the screen id never changes: the flag never
+//    sets, so this path never fires and click matching stays authoritative.
+//  - Multi-page prototypes: _visitedOtherScreen persists in session state,
+//    so a full page load onto the end screen still completes.
+//  - Matching reuses _screenMatchesGoal: plain path end screens match any
+//    query/hash variant; query- or hash-pinned end screens match exactly.
+function _checkEndScreenCompletion(screenId) {
+  if (_goalMode || _sessionCompleted) return;
+  if (!_endScreenId || _totalSteps === 0) return;
+
+  if (!_screenMatchesGoal(screenId, _endScreenId)) {
+    if (!_visitedOtherScreen) {
+      _visitedOtherScreen = true;
+      _saveState();
+    }
+    return;
+  }
+
+  if (!_visitedOtherScreen) return;
+
+  _completeSession('end_screen').catch((err) => {
+    console.error('[UXTracker Participant] Session completion error:', err);
+  });
 }
 
 // ─── Mid-study surveys ────────────────────────────────────────────────────────
@@ -526,7 +574,12 @@ function _handleClick(clickData) {
     return;
   }
 
-  if (!advancesStep) return;
+  if (!advancesStep) {
+    // Off-path click — but a custom screen detector may have swapped the
+    // screen without a navigation event, so check the end screen here too.
+    _checkEndScreenCompletion(screenId);
+    return;
+  }
 
   _currentStepIndex++;
   _completedSteps++;
@@ -548,7 +601,7 @@ function _handleClick(clickData) {
   _updatePanel();
 
   if (_currentStepIndex >= _totalSteps) {
-    _completeSession().catch((err) => {
+    _completeSession('path').catch((err) => {
       console.error('[UXTracker Participant] Session completion error:', err);
     });
   }
@@ -577,6 +630,7 @@ async function _handleNavigation() {
   _runScreenChangeDetection(_sessionId, newScreenId).catch(() => {});
   _evaluateActiveGoal(newScreenId, null);
   _maybeFireScreenSurveys(newScreenId);
+  _checkEndScreenCompletion(newScreenId);
   _updatePanel();
 }
 
@@ -603,7 +657,13 @@ function _patchHistory() {
 
 // ─── Session completion ───────────────────────────────────────────────────────
 
-async function _completeSession() {
+// via — how the session completed: 'path' (every recorded click matched),
+// 'goals' (all task goals met), or 'end_screen' (deviated from the recorded
+// path but reached the screen the recording stopped on).
+async function _completeSession(via) {
+  if (_sessionCompleted) return;
+  _sessionCompleted = true;
+
   stopClickCapture();
 
   const completedAt = new Date().toISOString();
@@ -627,6 +687,7 @@ async function _completeSession() {
     completed_at:    completedAt,
     completed_steps: _completedSteps,
     duration_ms:     durationMs,
+    completed_via:   via ?? null,
   }).catch((err) => console.error('[UXTracker Participant] updateSession (complete) error:', err));
 
   clearSessionState(_participantId);
@@ -1160,6 +1221,13 @@ export default async function initParticipant(config, study) {
   _surveys       = Array.isArray(study.surveys) ? study.surveys : [];
   _goalMode      = _sortedTasks.some((t) => _taskGoal(t) !== null);
 
+  // The screen the recording stopped on. endScreenId is captured explicitly
+  // at "end recording"; older recordings fall back to the screen of the last
+  // recorded click — the closest available signal of the stopping point.
+  const idealPathArr = Array.isArray(study.ideal_path) ? study.ideal_path : [];
+  const lastStep     = idealPathArr[idealPathArr.length - 1];
+  _endScreenId       = (lastStep && (lastStep.endScreenId || lastStep.screenId)) || '';
+
   // 4. Check for existing session state
   const existingState   = getSessionState(participantId);
   const hasExisting     = existingState !== null;
@@ -1177,6 +1245,7 @@ export default async function initParticipant(config, study) {
     _completedTasks   = existingState.completedTasks ?? 0;
     _firedSurveys     = existingState.firedSurveys ?? [];
     _surveyResponses  = existingState.surveyResponses ?? [];
+    _visitedOtherScreen = existingState.visitedOtherScreen ?? false;
 
     setEventBuffer(existingState.eventBuffer ?? []);
 
@@ -1237,6 +1306,8 @@ async function _startNewSession(studyId, existingState, expired) {
   _completedTasks   = 0;
   _firedSurveys     = [];
   _surveyResponses  = [];
+  _visitedOtherScreen = false;
+  _sessionCompleted   = false;
 
   updateParticipantStatus(_participantId, 'in_progress', {
     started_at: now,
@@ -1285,7 +1356,9 @@ function _activateTracking() {
 
   // 10. Full-page prototypes re-boot the tracker on every page load, so
   // evaluate the landing screen: the active task's goal (this is how screen
-  // goals complete across real navigations) and any screen-triggered surveys.
+  // goals complete across real navigations), any screen-triggered surveys,
+  // and the end-screen fallback (a deviating participant may land here).
   _evaluateActiveGoal(_currentScreenId, null);
   _maybeFireScreenSurveys(_currentScreenId);
+  _checkEndScreenCompletion(_currentScreenId);
 }

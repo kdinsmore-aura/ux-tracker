@@ -313,7 +313,11 @@
                     <tr @click="openSessionDrawer(s)"
                         :class="{ selected: drawerSession?.id === s.id }">
                       <td class="cell-label" x-text="s.participant_label || s.participant_id?.slice(0,8) + '…'"></td>
-                      <td><span class="badge" :class="'badge-' + s.status" x-text="s.status.replace('_',' ')"></span></td>
+                      <td>
+                        <span class="badge" :class="'badge-' + s.status" x-text="s.status.replace('_',' ')"></span>
+                        <span class="badge badge-offpath" x-show="s.completed_via === 'end_screen'"
+                              title="Deviated from the recorded path but reached the end screen">↷ off-path</span>
+                      </td>
                       <td x-text="fmtDuration(s.duration_ms)"></td>
                       <td x-text="(s.completed_steps || 0) + ' / ' + (s.total_steps || '—')"></td>
                       <td x-text="s.mis_click_count ?? '—'"></td>
@@ -685,10 +689,48 @@
               </div>
               <div><span class="text-muted">Started: </span>
                 <span x-text="fmtDateTime(drawerSession.started_at)"></span></div>
+              <div x-show="drawerSession.status === 'completed'" style="grid-column:1 / -1">
+                <span class="text-muted">Completed via: </span>
+                <span x-text="completedViaLabel(drawerSession.completed_via)"></span>
+              </div>
+            </div>
+            <div class="msg msg-warning" style="margin-top:10px;margin-bottom:0"
+                 x-show="drawerSession.completed_via === 'end_screen'">
+              ↷ Deviated from the recorded path but reached the end screen —
+              see the route below for where they diverged.
             </div>
             <div class="msg msg-warning" style="margin-top:10px;margin-bottom:0"
                  x-show="drawerSession.resumed_without_state">
               ⚠ Resumed without state — participant returned on a different device or cleared storage.
+            </div>
+          </div>
+
+          <!-- Route taken -->
+          <div class="drawer-section" x-show="drawerRoute.length > 0">
+            <div class="drawer-section-title">Route Taken</div>
+            <div class="route-summary">
+              <span x-text="drawerRoute.length + ' screen' + (drawerRoute.length !== 1 ? 's' : '') + ' visited'"></span>
+              <span x-show="drawerDetourCount > 0" class="route-summary-detours"
+                    x-text="'· ' + drawerDetourCount + ' off the recorded route'"></span>
+              <span x-show="drawerDetourCount === 0" class="route-summary-clean">· matched the recorded route</span>
+            </div>
+            <div class="route-chips">
+              <template x-for="(r, i) in drawerRoute" :key="i">
+                <span class="route-item">
+                  <span class="route-arrow" x-show="i > 0">→</span>
+                  <span class="route-chip"
+                        :class="r.onIdeal ? 'on-ideal' : 'detour'"
+                        :title="(r.onIdeal ? 'On the recorded route' : 'Detour — not on the recorded route') + ' · reached at ' + fmtMs(r.ms)">
+                    <span x-show="r.isEnd" class="route-end-flag">🏁</span>
+                    <span x-text="r.screen"></span>
+                  </span>
+                </span>
+              </template>
+            </div>
+            <div class="route-legend">
+              <span class="route-legend-item"><span class="route-swatch on-ideal"></span> on recorded route</span>
+              <span class="route-legend-item"><span class="route-swatch detour"></span> detour</span>
+              <span class="route-legend-item">🏁 end screen</span>
             </div>
           </div>
 
