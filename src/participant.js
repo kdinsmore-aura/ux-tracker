@@ -832,7 +832,6 @@ const _PANEL_CSS = `
   #toggle-arrow { font-size: 10px; color: #adb5bd; flex-shrink: 0; line-height: 1; }
   #body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   #panel.minimized #body { display: none; }
-  #panel.minimized #complete-body { display: none !important; }
   #task-prompt {
     font-size: 15px; font-weight: 500; color: #1a1a2e; line-height: 1.5;
   }
@@ -848,13 +847,26 @@ const _PANEL_CSS = `
     height: 100%; background: #4f46e5; border-radius: 2px;
     transition: width .3s ease; width: 0%;
   }
-  #complete-body {
-    padding: 16px; display: none; flex-direction: column; gap: 8px;
-    border-top: 1px solid #e9ecef;
+  #complete-overlay {
+    position: fixed; inset: 0; background: rgba(17,24,39,.55);
+    display: none; align-items: center; justify-content: center;
+    z-index: 2147483647; padding: 24px; box-sizing: border-box;
+    font-family: system-ui, -apple-system, sans-serif;
   }
-  #complete-body.open { display: flex; }
-  #complete-msg { font-size: 14px; font-weight: 500; color: #15803d; line-height: 1.5; }
-  #complete-time { font-size: 12px; color: #6c757d; }
+  #complete-overlay.open { display: flex; }
+  #complete-card {
+    background: #ffffff; border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.3);
+    padding: 28px; width: 460px; max-width: 92vw;
+    max-height: 84vh; overflow-y: auto; box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  #complete-study {
+    font-size: 11px; color: #6c757d; font-weight: 500;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  #complete-msg { font-size: 20px; font-weight: 600; color: #1a1a2e; line-height: 1.35; }
+  #complete-time { font-size: 13px; color: #6c757d; }
   #feedback { display: none; flex-direction: column; gap: 10px; margin-top: 4px; }
   #feedback.show { display: flex; }
   .fb-prompt { font-size: 13px; font-weight: 500; color: #1a1a2e; line-height: 1.4; }
@@ -949,7 +961,12 @@ class UxtTaskPanel extends HTMLElement {
           <div id="progress-label">Task 1 of 1</div>
           <div id="progress-track"><div id="progress-fill"></div></div>
         </div>
-        <div id="complete-body">
+        <div id="survey-body"></div>
+      </div>
+      <div id="survey-overlay"></div>
+      <div id="complete-overlay">
+        <div id="complete-card">
+          <div id="complete-study"></div>
           <div id="complete-msg">You've completed all tasks. Thank you!</div>
           <div id="complete-time"></div>
           <div id="feedback">
@@ -972,9 +989,7 @@ class UxtTaskPanel extends HTMLElement {
             <div id="fb-thanks">Thanks for your feedback!</div>
           </div>
         </div>
-        <div id="survey-body"></div>
       </div>
-      <div id="survey-overlay"></div>
     `;
     this._q('header').addEventListener('click', () => this._toggleMinimize());
   }
@@ -1019,13 +1034,15 @@ class UxtTaskPanel extends HTMLElement {
     setTimeout(() => panel.classList.remove('stale-flash'), 2000);
   }
 
+  // Full-page modal styled like the welcome gate — the study's bookends match.
   showComplete(durationMs) {
     this._completed = true;
-    this._q('body').style.display = 'none';
+    this._q('panel').style.display = 'none';   // corner panel retires; modal takes over
 
     // Custom thank-you message, with a generic fallback.
     const cfg = (_study && _study.completion) || {};
     const custom = cfg.thankYou && String(cfg.thankYou).trim();
+    this._q('complete-study').textContent = _study?.name ?? '';
     this._q('complete-msg').textContent = custom || "You've completed all tasks. Thank you!";
 
     const totalSecs  = Math.round(durationMs / 1000);
@@ -1042,7 +1059,7 @@ class UxtTaskPanel extends HTMLElement {
     this._q('complete-time').textContent = `Completed in ${timeStr}`;
 
     this._setupFeedback(cfg);
-    this._q('complete-body').classList.add('open');
+    this._q('complete-overlay').classList.add('open');
   }
 
   // Wire up the optional rating/comment fields based on the study's config.

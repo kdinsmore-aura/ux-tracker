@@ -745,6 +745,19 @@ class UxtRecorderPanel extends HTMLElement {
     // Wait for any in-flight per-step screenshots before persisting the path.
     await Promise.allSettled(_state.pendingShots);
 
+    // Auto-close a task still open when the recording ends: its boundary is
+    // the recording's end, so the final task gets a real completion goal and
+    // exact step stamps — the same as if End Task had been clicked here.
+    if (_state.taskBoundaries.length < _state.taskPrompts.length &&
+        _state.idealPath.length > 0) {
+      _state.taskBoundaries.push({
+        taskIndex: _state.taskBoundaries.length,
+        screenId:  last?.endScreenId || computeScreenId(_config.screens),
+        stepIndex: _state.idealPath.length,
+        endedAt:   new Date().toISOString(),
+      });
+    }
+
     // Stamp each recorded step with the task it belongs to (exact — from the
     // End Task boundaries) so the review page can group steps under tasks.
     if (_state.taskBoundaries.length > 0) {
