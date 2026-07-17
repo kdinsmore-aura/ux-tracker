@@ -524,7 +524,10 @@
         <div class="path-list" x-show="!pathLoading && idealPath.length > 0">
           <template x-for="(e, ei) in pathTimeline"
                     :key="e.kind + '-' + (e.kind === 'step' ? e.idx : (e.kind === 'task' ? 't' + e.t.id : 's' + e.s.id))">
-            <div>
+            <div :class="{ 'tl-drop': dragSurveyId !== null && dragOverIdx === ei }"
+                 @dragover.prevent="dragOverIdx = ei"
+                 @dragleave="dragOverIdx === ei && (dragOverIdx = null)"
+                 @drop.prevent="dropSurvey(e)">
 
               <!-- Task header (accordion — click to edit) -->
               <template x-if="e.kind === 'task'">
@@ -553,7 +556,13 @@
               <!-- Survey (accordion — click to edit) -->
               <template x-if="e.kind === 'survey'">
                 <div class="tl-survey" :class="{ 'tl-indent': pathHasTasks }">
-                  <div class="tl-survey-head" @click="e.s._open = !e.s._open">
+                  <div class="tl-survey-head"
+                       draggable="true"
+                       title="Drag to move this survey to a different point in the flow"
+                       @click="e.s._open = !e.s._open"
+                       @dragstart="dragSurveyId = e.s.id; $event.dataTransfer.setData('text/plain', String(e.s.id)); $event.dataTransfer.effectAllowed = 'move'"
+                       @dragend="dragSurveyId = null; dragOverIdx = null">
+                    <span class="tl-grip" aria-hidden="true">⠿</span>
                     <span class="tl-chevron" x-text="e.s._open ? '▾' : '▸'"></span>
                     <span aria-hidden="true">📋</span>
                     <span class="tl-survey-title"

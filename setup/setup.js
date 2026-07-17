@@ -52,6 +52,8 @@ function setupApp() {
     pathDetailsSaving: false,
     pathDetailsMsg: '',
     pathDetailsError: '',
+    dragSurveyId: null,  // survey being dragged in the timeline
+    dragOverIdx: null,   // timeline entry index currently hovered as drop target
 
     // ── Step 5 — Generate links ───────────────────────────────────────────────
     linkCount: 5,
@@ -775,21 +777,62 @@ function setupApp() {
       }
 
       for (let i = 0; i <= nSteps; i++) {
-        for (const s of (beforePos[i] || [])) entries.push({ kind: 'survey', s });
+        for (const s of (beforePos[i] || [])) entries.push({ kind: 'survey', s, pos: i, viaTask: s.afterTaskId });
         if (segs) {
           for (const seg of segs) {
             if (seg.start === i) {
-              entries.push({ kind: 'task', t: seg.task, ti: seg.ti, count: Math.max(0, seg.end - seg.start + 1) });
+              entries.push({ kind: 'task', t: seg.task, ti: seg.ti, pos: i, count: Math.max(0, seg.end - seg.start + 1) });
             }
           }
         } else if (i === 0 && this.pathTasks.length > 0) {
           // No reliable segmentation — stack the task headers up top.
-          this.pathTasks.forEach((t, ti) => entries.push({ kind: 'task', t, ti, count: null }));
+          this.pathTasks.forEach((t, ti) => entries.push({ kind: 'task', t, ti, pos: 0, count: null }));
         }
-        for (const s of (afterHeaderPos[i] || [])) entries.push({ kind: 'survey', s });
-        if (i < nSteps) entries.push({ kind: 'step', step: steps[i], idx: i });
+        for (const s of (afterHeaderPos[i] || [])) entries.push({ kind: 'survey', s, pos: i, viaTask: null });
+        if (i < nSteps) entries.push({ kind: 'step', step: steps[i], idx: i, pos: i });
       }
       return entries;
+    },
+
+    // Drop a dragged survey onto a timeline entry. Position IS the trigger:
+    // dropping on a task header retargets to "after the previous task";
+    // dropping on a step (or another survey's spot) makes it fire on
+    // reaching that screen, at that exact point in the path.
+    dropSurvey(target) {
+      const sid = this.dragSurveyId;
+      this.dragSurveyId = null;
+      this.dragOverIdx = null;
+      if (sid == null) return;
+      const s = this.pathSurveys.find(x => x.id === sid);
+      if (!s || (target.kind === 'survey' && target.s.id === sid)) return;
+      const steps = this.idealPath || [];
+
+      if (target.kind === 'task' && target.ti > 0) {
+        s.triggerType = 'after_task';
+        s.afterTaskId = this.pathTasks[target.ti - 1].id;
+        s.stepIndex = null;
+      } else if (target.kind === 'survey' && target.viaTask != null) {
+        s.triggerType = 'after_task';
+        s.afterTaskId = target.viaTask;
+        s.stepIndex = null;
+      } else {
+        const pos = Math.min(target.pos ?? steps.length, steps.length);
+        s.triggerType = 'screen_enter';
+        if (pos < steps.length) {
+          s.screenId = steps[pos].screenId || s.screenId;
+          s.stepIndex = pos;
+        } else {
+          const last = steps[steps.length - 1];
+          s.screenId = last?.endScreenId || last?.screenId || s.screenId;
+          s.stepIndex = steps.length;
+        }
+      }
+
+      this.pathDetailsError = '';
+      this.pathDetailsMsg = 'Survey moved — click Save Changes to keep it.';
+      setTimeout(() => {
+        if (this.pathDetailsMsg.startsWith('Survey moved')) this.pathDetailsMsg = '';
+      }, 4000);
     },
 
     surveyTriggerLabel(s) {
