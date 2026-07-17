@@ -351,7 +351,7 @@ Deno.serve(async (req: Request) => {
       }
 
       case 'updateStudyIdealPath': {
-        const { studyId, idealPath, status, recordedSurveys } = payload;
+        const { studyId, idealPath, status, recordedSurveys, taskGoals } = payload;
         if (!studyId) return bad('studyId is required');
         if (!idealPath) return bad('idealPath is required');
         if (status !== 'active') return bad('status must be active');
@@ -362,28 +362,35 @@ Deno.serve(async (req: Request) => {
           updated_at: new Date().toISOString(),
         };
 
-        // Survey points marked during recording become screen-triggered
-        // surveys with default config (refined later in setup). Recorder-
-        // sourced surveys from a previous recording are replaced; manually
-        // authored surveys are preserved. The server builds the survey
-        // objects itself — the client only supplies screen ids.
-        if (Array.isArray(recordedSurveys)) {
-          const { data: studyRow, error: sErr } = await db
+        const capText = (v: unknown, max = 200) => String(v ?? '').trim().slice(0, max);
+        const wantSurveys   = Array.isArray(recordedSurveys);
+        const wantTaskGoals = Array.isArray(taskGoals) && (taskGoals as unknown[]).length > 0;
+
+        let studyRow: Record<string, unknown> | null = null;
+        if (wantSurveys || wantTaskGoals) {
+          const { data, error: sErr } = await db
             .from('studies')
-            .select('surveys')
+            .select('surveys, tasks')
             .eq('id', studyId)
             .maybeSingle();
           if (sErr) {
-            console.error('updateStudyIdealPath surveys lookup:', sErr);
-            return fail('Failed to load existing surveys');
+            console.error('updateStudyIdealPath study lookup:', sErr);
+            return fail('Failed to load study');
           }
+          studyRow = data as Record<string, unknown> | null;
+        }
+
+        // Survey points marked during recording become screen-triggered
+        // surveys (details sanitized server-side). Recorder-sourced surveys
+        // from a previous recording are replaced; manually authored surveys
+        // are preserved.
+        if (wantSurveys) {
           const existing = Array.isArray(studyRow?.surveys) ? studyRow.surveys as Record<string, unknown>[] : [];
           const manual = existing.filter((s) => s?.source !== 'recorder');
           let nextId = manual.reduce((m, s) => Math.max(m, Number(s?.id) || 0), 0);
-          const capText = (v: unknown) => String(v ?? '').trim().slice(0, 200);
-          const recorded = recordedSurveys
+          const recorded = (recordedSurveys as Record<string, unknown>[])
             .slice(0, 20)
-            .map((p: Record<string, unknown>) => {
+            .map((p) => {
               const sid = String(p?.screenId || '').trim().toLowerCase();
               if (!sid) return null;
               // ratingEnabled defaults to true (absent on points from older
@@ -403,6 +410,32 @@ Deno.serve(async (req: Request) => {
             })
             .filter((s) => s !== null);
           update.surveys = [...manual, ...recorded];
+        }
+
+        // "End Task" boundaries from the recorder become task completion
+        // goals, applied by order-sorted task index. Tasks without a
+        // boundary keep whatever goal they already have.
+        if (wantTaskGoals) {
+          const tasks = Array.isArray(studyRow?.tasks) ? studyRow.tasks as Record<string, unknown>[] : [];
+          const sorted = [...tasks].sort((a, b) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
+          for (const tg of (taskGoals as Record<string, unknown>[]).slice(0, 50)) {
+            const idx = Number(tg?.taskIndex);
+            const g = tg?.goal as Record<string, unknown> | null;
+            if (!Number.isInteger(idx) || idx < 0 || idx >= sorted.length || !g) continue;
+            if (g.type === 'screen' && g.screenId) {
+              sorted[idx].goal = {
+                type: 'screen',
+                screenId: capText(g.screenId, 300).toLowerCase(),
+              };
+            } else if (g.type === 'click' && (g.selector || g.elementText)) {
+              sorted[idx].goal = {
+                type: 'click',
+                selector:    g.selector ? capText(g.selector, 300) : null,
+                elementText: g.elementText ? capText(g.elementText) : null,
+              };
+            }
+          }
+          update.tasks = tasks;
         }
 
         const { error } = await db

@@ -97,12 +97,15 @@ export async function updateStudyScreenChangesFlag(studyId) {
 }
 
 /**
- * Save the recorded ideal path (and optionally the survey points marked
- * during recording — the server converts them into screen-triggered surveys,
- * replacing previous recorder-sourced ones and keeping manual ones).
+ * Save the recorded ideal path, plus optionally:
+ * - recordedSurveys: survey points marked during recording (the server
+ *   converts them into screen-triggered surveys, replacing previous
+ *   recorder-sourced ones and keeping manual ones)
+ * - taskGoals: [{ taskIndex, goal }] derived from "End Task" boundaries;
+ *   applied onto the study's tasks so completion is goal-based.
  */
-export async function updateStudyIdealPath(studyId, idealPath, status, recordedSurveys = null) {
-  return ingest('updateStudyIdealPath', { studyId, idealPath, status, recordedSurveys });
+export async function updateStudyIdealPath(studyId, idealPath, status, recordedSurveys = null, taskGoals = null) {
+  return ingest('updateStudyIdealPath', { studyId, idealPath, status, recordedSurveys, taskGoals });
 }
 
 // ─── Screen operations (ingest) ──────────────────────────────────────────────

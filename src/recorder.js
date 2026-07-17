@@ -13,6 +13,7 @@ import { RECORDING_SESSION_KEY } from './utils/config.js';
 
 const RECORDING_PATH_KEY    = 'uxt_rec_path';
 const RECORDING_SURVEYS_KEY = 'uxt_rec_surveys';
+const RECORDING_TASKS_KEY   = 'uxt_rec_tasks';
 
 function _loadSavedPath() {
   try {
@@ -37,11 +38,23 @@ function _saveSurveyPoints(points) {
   try { sessionStorage.setItem(RECORDING_SURVEYS_KEY, JSON.stringify(points)); } catch (_) {}
 }
 
+function _loadSavedTaskBoundaries() {
+  try {
+    const data = JSON.parse(sessionStorage.getItem(RECORDING_TASKS_KEY) || 'null');
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
+}
+
+function _saveTaskBoundaries(boundaries) {
+  try { sessionStorage.setItem(RECORDING_TASKS_KEY, JSON.stringify(boundaries)); } catch (_) {}
+}
+
 function _clearRecordingSession() {
   try {
     sessionStorage.removeItem(RECORDING_SESSION_KEY);
     sessionStorage.removeItem(RECORDING_PATH_KEY);
     sessionStorage.removeItem(RECORDING_SURVEYS_KEY);
+    sessionStorage.removeItem(RECORDING_TASKS_KEY);
   } catch (_) {}
 }
 
@@ -52,7 +65,9 @@ const _state = {
   idealPath: [],
   capturedScreens: new Map(),
   pendingShots: [],
-  surveyPoints: [],   // { screenId, stepIndex, recordedAt } — mid-study survey markers
+  surveyPoints: [],    // { screenId, stepIndex, recordedAt, ...details } — survey markers
+  taskBoundaries: [],  // { taskIndex, screenId, stepIndex, endedAt } — "End Task" markers
+  taskPrompts: [],     // ordered task prompts from the study
   currentStepIndex: 0,
   isRecording: false,
   sessionStartTime: 0,
@@ -243,8 +258,11 @@ const _PANEL_CSS = `
   button:hover { opacity: .82; }
   #btn-capture { background: #313244; color: #cdd6f4; flex: 1; }
   #btn-mark    { background: #40a02b; color: #fff; flex: 1; }
+  #btn-endtask { background: #f9e2af; color: #1e1e2e; width: 100%; }
+  #btn-endtask:disabled { opacity: .5; cursor: default; }
   #btn-survey  { background: #89b4fa; color: #1e1e2e; width: 100%; }
   #btn-finish  { background: #f38ba8; color: #1e1e2e; width: 100%; }
+  #task-tracker { color: #f9e2af; }
   #survey-form {
     display: none; flex-direction: column; gap: 8px;
     background: #181825; border: 1px solid #313244; border-radius: 6px; padding: 10px;
@@ -311,6 +329,7 @@ class UxtRecorderPanel extends HTMLElement {
         <div id="header"><div id="dot"></div>UX Tracker — Recording</div>
         <div id="body">
           <div id="task-desc">Walk through the ideal path for this study.</div>
+          <div class="meta" id="task-tracker" style="display:none"></div>
           <div class="meta" id="step-counter">0 steps recorded</div>
           <div class="meta" id="screen-counter">0 screens captured</div>
           <div class="meta" id="survey-counter">0 survey points</div>
@@ -318,6 +337,7 @@ class UxtRecorderPanel extends HTMLElement {
             <button id="btn-capture" title="Alt+Shift+C">Capture Screen</button>
             <button id="btn-mark" title="Alt+Shift+M">Mark Step</button>
           </div>
+          <button id="btn-endtask" title="Alt+Shift+T" style="display:none">✓ End Task</button>
           <button id="btn-survey" title="Alt+Shift+S">📋 Mark Survey Point</button>
           <div id="survey-form">
             <label><input type="checkbox" id="sf-rating" checked> Star rating (1–5)</label>
@@ -359,6 +379,7 @@ class UxtRecorderPanel extends HTMLElement {
 
     this._q('btn-capture').addEventListener('click', () => captureCurrentScreen());
     this._q('btn-mark').addEventListener('click', () => this._markStep());
+    this._q('btn-endtask').addEventListener('click', () => this._endTask());
     this._q('btn-survey').addEventListener('click', () => this._toggleSurveyForm());
     this._q('btn-finish').addEventListener('click', () => this._showConfirm());
     this._q('btn-yes').addEventListener('click', () => this._saveAndFinish());
@@ -384,6 +405,7 @@ class UxtRecorderPanel extends HTMLElement {
       if (e.altKey && e.shiftKey && e.key === 'C') { e.preventDefault(); captureCurrentScreen(); }
       if (e.altKey && e.shiftKey && e.key === 'M') { e.preventDefault(); this._markStep(); }
       if (e.altKey && e.shiftKey && e.key === 'S') { e.preventDefault(); this._toggleSurveyForm(); }
+      if (e.altKey && e.shiftKey && e.key === 'T') { e.preventDefault(); this._endTask(); }
     };
     document.addEventListener('keydown', this._keyHandler);
   }
@@ -410,6 +432,58 @@ class UxtRecorderPanel extends HTMLElement {
 
   updateSurveyCount(n) {
     this._q('survey-counter').textContent = `${n} survey point${n !== 1 ? 's' : ''}`;
+  }
+
+  // Render the task list with progress markers (✓ done, → current) and keep
+  // the tracker line + End Task button in sync.
+  renderTaskList() {
+    const total = _state.taskPrompts.length;
+    if (total === 0) return;
+    const done = _state.taskBoundaries.length;
+
+    const lines = _state.taskPrompts.map((p, i) => {
+      const marker = i < done ? '✓' : (i === done ? '→' : `${i + 1}.`);
+      return `${marker} ${p}`;
+    });
+    this._q('task-desc').textContent = lines.join('\n');
+
+    const tracker = this._q('task-tracker');
+    const btn     = this._q('btn-endtask');
+    tracker.style.display = '';
+    btn.style.display = '';
+    if (done >= total) {
+      tracker.textContent = `All ${total} task${total !== 1 ? 's' : ''} ended`;
+      btn.textContent = '✓ All Tasks Ended';
+      btn.disabled = true;
+    } else {
+      tracker.textContent = `Recording task ${done + 1} of ${total}`;
+      btn.textContent = `✓ End Task ${done + 1}`;
+      btn.disabled = false;
+    }
+  }
+
+  // Mark the current task as finished at the current screen. On save, each
+  // boundary becomes the task's completion goal (screen reached, or last
+  // click for same-screen tasks).
+  _endTask() {
+    if (!_state.isRecording) return;
+    if (_state.taskBoundaries.length >= _state.taskPrompts.length) return;
+    const boundary = {
+      taskIndex: _state.taskBoundaries.length,
+      screenId:  computeScreenId(_config.screens),
+      stepIndex: _state.idealPath.length,
+      endedAt:   new Date().toISOString(),
+    };
+    _state.taskBoundaries.push(boundary);
+    _saveTaskBoundaries(_state.taskBoundaries);
+    this.renderTaskList();
+
+    const log = this._q('log');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.textContent = `✓  ${boundary.screenId}  [task ${boundary.taskIndex + 1} ended]`;
+    log.appendChild(entry);
+    log.scrollTop = log.scrollHeight;
   }
 
   // Toggle the inline survey-details form. The point is only recorded when
@@ -515,9 +589,13 @@ class UxtRecorderPanel extends HTMLElement {
     const steps   = _state.idealPath.length;
     const screens = _state.capturedScreens.size;
     const points  = _state.surveyPoints.length;
+    const ended   = _state.taskBoundaries.length;
+    const total   = _state.taskPrompts.length;
     this._q('confirm-msg').textContent =
       `Save ideal path with ${steps} step${steps !== 1 ? 's' : ''} across ${screens} screen${screens !== 1 ? 's' : ''}` +
-      (points ? ` and ${points} survey point${points !== 1 ? 's' : ''}` : '') + '?';
+      (points ? `, ${points} survey point${points !== 1 ? 's' : ''}` : '') +
+      (ended ? `, ${ended} of ${total} task${total !== 1 ? 's' : ''} ended (their goals will be set from the recording)` : '') +
+      '?';
     this._q('body').style.display = 'none';
     this._q('confirm-box').classList.add('open');
   }
@@ -551,8 +629,36 @@ class UxtRecorderPanel extends HTMLElement {
     // Wait for any in-flight per-step screenshots before persisting the path.
     await Promise.allSettled(_state.pendingShots);
 
+    // Task boundaries become completion goals: the screen the task ended on,
+    // or — when the task ended on the screen it started on — the last click
+    // recorded before the boundary.
+    let taskGoals = null;
+    if (_state.taskBoundaries.length > 0) {
+      taskGoals = _state.taskBoundaries.map((b, i) => {
+        const prevScreen = i > 0
+          ? _state.taskBoundaries[i - 1].screenId
+          : (_state.idealPath[0]?.screenId ?? null);
+        let goal = null;
+        if (b.screenId && b.screenId !== prevScreen) {
+          goal = { type: 'screen', screenId: b.screenId };
+        } else {
+          const lastStep = _state.idealPath[b.stepIndex - 1];
+          if (lastStep && (lastStep.elementSelector || lastStep.elementText)) {
+            goal = {
+              type: 'click',
+              selector:    lastStep.elementSelector || null,
+              elementText: lastStep.elementText || null,
+            };
+          } else if (b.screenId) {
+            goal = { type: 'screen', screenId: b.screenId };
+          }
+        }
+        return goal ? { taskIndex: b.taskIndex, goal } : null;
+      }).filter(Boolean);
+    }
+
     try {
-      await updateStudyIdealPath(_state.studyId, _state.idealPath, 'active', _state.surveyPoints);
+      await updateStudyIdealPath(_state.studyId, _state.idealPath, 'active', _state.surveyPoints, taskGoals);
     } catch (err) {
       console.error('[UXTracker Recorder] Failed to save ideal path:', err);
     }
@@ -590,7 +696,8 @@ export default async function initRecorder(config, study) {
     _state.idealPath = savedPath;
     _state.currentStepIndex = savedPath.length;
   }
-  _state.surveyPoints = _loadSavedSurveyPoints();
+  _state.surveyPoints   = _loadSavedSurveyPoints();
+  _state.taskBoundaries = _loadSavedTaskBoundaries();
 
   // Derive the framework base URL from whichever script attribute is present
   const scriptEl = document.querySelector('script[data-study]')
@@ -607,14 +714,18 @@ export default async function initRecorder(config, study) {
   document.body.appendChild(panelEl);
   _panel = panelEl;
 
-  // Show numbered task prompts; fall back to study description / name
-  const tasks = (study.tasks || [])
-    .map((t, i) => `${i + 1}. ${typeof t === 'string' ? t : (t.prompt || '')}`)
-    .filter(s => s.trim().length > 3);
-  const taskText = tasks.length > 0
-    ? tasks.join('\n')
-    : (study.description || study.name || null);
-  if (taskText) _panel.setTaskDescription(taskText);
+  // Task list with live progress markers and the End Task control; fall back
+  // to study description / name when the study has no task prompts.
+  _state.taskPrompts = (Array.isArray(study.tasks) ? [...study.tasks] : [])
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((t) => (typeof t === 'string' ? t : (t.prompt || '')).trim())
+    .filter((p) => p.length > 0);
+  if (_state.taskPrompts.length > 0) {
+    _panel.renderTaskList();
+  } else {
+    const fallback = study.description || study.name || null;
+    if (fallback) _panel.setTaskDescription(fallback);
+  }
 
   // Sync counters if restoring a prior session
   if (_state.idealPath.length > 0) {
