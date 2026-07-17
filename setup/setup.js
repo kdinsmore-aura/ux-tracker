@@ -51,6 +51,10 @@ function setupApp() {
     pathSurveysSaving: false,
     pathSurveysMsg: '',
     pathSurveysError: '',
+    pathTasks: [],       // editable task prompts/instructions (goals shown read-only)
+    pathTasksSaving: false,
+    pathTasksMsg: '',
+    pathTasksError: '',
 
     // ── Step 5 — Generate links ───────────────────────────────────────────────
     linkCount: 5,
@@ -299,6 +303,7 @@ function setupApp() {
           return {
             id: i + 1,
             prompt: typeof t === 'string' ? t : (t.prompt || ''),
+            instructions: (typeof t === 'object' && t?.instructions) || '',
             goalType: (g?.type === 'screen' || g?.type === 'click') ? g.type : 'none',
             goalScreenId: g?.type === 'screen' ? (g.screenId || '') : '',
             goalSelector: g?.type === 'click' ? (g.selector || '') : '',
@@ -360,7 +365,7 @@ function setupApp() {
 
     _addTask() {
       this.newStudy.tasks.push({
-        id: this.taskCounter++, prompt: '',
+        id: this.taskCounter++, prompt: '', instructions: '',
         goalType: 'none', goalScreenId: '', goalSelector: '', goalText: '',
       });
     },
@@ -475,7 +480,12 @@ function setupApp() {
       const idMap = {};
       const tasks = editorTasks.map((t, i) => {
         idMap[t.id] = i + 1;
-        const row = { id: i + 1, prompt: t.prompt.trim(), order: i };
+        const row = {
+          id: i + 1,
+          prompt: t.prompt.trim(),
+          instructions: (t.instructions || '').trim() || null,
+          order: i,
+        };
         if (t.goalType === 'screen' && t.goalScreenId.trim()) {
           row.goal = { type: 'screen', screenId: t.goalScreenId.trim().toLowerCase() };
         } else if (t.goalType === 'click' && (t.goalSelector.trim() || t.goalText.trim())) {
@@ -632,6 +642,17 @@ function setupApp() {
         for (const s of scr.data || []) { m[s.screen_id] = s.screenshot_url; }
         this.pathScreens = m;
 
+        // Tasks (prompts + instructions) are editable right here — including
+        // tasks created on the fly during the recording.
+        this.pathTasks = (Array.isArray(sr.data.tasks) ? sr.data.tasks : []).map(t => ({
+          id: t.id,
+          prompt: t.prompt || '',
+          instructions: t.instructions || '',
+          goal: t.goal || null,
+        }));
+        this.pathTasksMsg = '';
+        this.pathTasksError = '';
+
         // Surveys are editable right here on the review page — including the
         // points marked with "Mark Survey Point" during the recording.
         this.pathSurveys = this._surveysToEditor(sr.data.surveys);
@@ -643,6 +664,58 @@ function setupApp() {
         this.pathError = e.message;
       } finally {
         this.pathLoading = false;
+      }
+    },
+
+    goalSummary(goal) {
+      if (!goal) return 'No goal — completion follows the recorded path';
+      if (goal.type === 'screen') {
+        return `Completed when the participant reaches ${goal.screenId}`;
+      }
+      if (goal.type === 'click') {
+        const target = goal.selector || (goal.elementText ? `"${goal.elementText}"` : '');
+        return `Completed when the participant clicks ${target}`;
+      }
+      return 'No goal';
+    },
+
+    // Persist prompt/instruction edits from the review page. Ids, order, and
+    // goals are preserved — only the researcher-facing text changes.
+    async savePathTasks() {
+      this.pathTasksError = '';
+      this.pathTasksMsg = '';
+      for (const t of this.pathTasks) {
+        if (!t.prompt.trim()) {
+          this.pathTasksError = 'Every task needs a prompt.';
+          return;
+        }
+      }
+      const byId = {};
+      this.pathTasks.forEach(t => { byId[t.id] = t; });
+      const tasks = (Array.isArray(this.study?.tasks) ? this.study.tasks : []).map(t => {
+        const edit = byId[t.id];
+        if (!edit) return t;
+        return {
+          ...t,
+          prompt: edit.prompt.trim(),
+          instructions: (edit.instructions || '').trim() || null,
+        };
+      });
+
+      this.pathTasksSaving = true;
+      try {
+        const { error } = await this._db
+          .from('studies')
+          .update({ tasks, updated_at: new Date().toISOString() })
+          .eq('id', this.studyId);
+        if (error) throw error;
+        this.study = { ...this.study, tasks };
+        this.pathTasksMsg = 'Tasks saved.';
+        setTimeout(() => { this.pathTasksMsg = ''; }, 2500);
+      } catch (e) {
+        this.pathTasksError = 'Failed to save tasks: ' + (e.message || String(e));
+      } finally {
+        this.pathTasksSaving = false;
       }
     },
 

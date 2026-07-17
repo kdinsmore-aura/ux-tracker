@@ -285,6 +285,12 @@ const _PANEL_CSS = `
     color: #cdd6f4; padding: 7px 8px; font-size: 12px; font-family: inherit;
   }
   #task-form input[type="text"]:focus { outline: none; border-color: #f9e2af; }
+  #task-form textarea {
+    width: 100%; box-sizing: border-box; resize: vertical; min-height: 48px;
+    background: #313244; border: 1px solid #45475a; border-radius: 6px;
+    color: #cdd6f4; padding: 7px 8px; font-size: 12px; font-family: inherit;
+  }
+  #task-form textarea:focus { outline: none; border-color: #f9e2af; }
   #tf-hint { font-size: 11px; color: #f38ba8; display: none; }
   #tf-hint.show { display: block; }
   #tf-start  { background: #40a02b; color: #fff; flex: 1; }
@@ -370,6 +376,8 @@ class UxtRecorderPanel extends HTMLElement {
           <div id="task-form">
             <input type="text" id="tf-prompt" maxlength="300"
                    placeholder="Next task prompt (e.g. Change your notification settings)">
+            <textarea id="tf-instructions" maxlength="1000"
+                      placeholder="Instructions for the participant (optional — context, test credentials, hints…)"></textarea>
             <div id="tf-hint">Enter a task prompt.</div>
             <div class="btn-row">
               <button id="tf-start">▶ Start Task</button>
@@ -527,6 +535,7 @@ class UxtRecorderPanel extends HTMLElement {
 
   _closeTaskForm() {
     this._q('tf-prompt').value = '';
+    this._q('tf-instructions').value = '';
     this._q('tf-hint').classList.remove('show');
     this._q('task-form').classList.remove('open');
   }
@@ -540,8 +549,9 @@ class UxtRecorderPanel extends HTMLElement {
       this._q('tf-hint').classList.add('show');
       return;
     }
+    const instructions = this._q('tf-instructions').value.trim();
     _state.taskPrompts.push(prompt);
-    _state.newTasks.push({ prompt });
+    _state.newTasks.push({ prompt, instructions: instructions || null });
     _saveNewTasks(_state.newTasks);
     this._closeTaskForm();
     this.renderTaskList();

@@ -260,6 +260,14 @@
                             title="Remove task">✕</button>
                   </div>
                 </div>
+                <div class="task-goal-row" style="margin-top:6px">
+                  <textarea class="input"
+                            style="flex:1;padding:6px 8px;font-size:12px;min-height:34px;resize:vertical"
+                            rows="1"
+                            maxlength="1000"
+                            placeholder="Instructions for the participant (optional — context, test credentials, hints…)"
+                            x-model="task.instructions"></textarea>
+                </div>
                 <div class="task-goal-row">
                   <span class="task-goal-label">Completed when</span>
                   <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
@@ -573,6 +581,44 @@
                    @keydown.enter.prevent="openPreview(idealPath.length)">
             </div>
           </template>
+        </div>
+
+        <!-- Tasks — prompts and instructions editable here; goals in Edit Study -->
+        <div x-show="!pathLoading && pathTasks.length > 0" style="margin-top:28px">
+          <p class="section-label" x-text="'Tasks (' + pathTasks.length + ')'"></p>
+          <p class="hint" style="margin-bottom:10px">
+            Edit the prompts and participant instructions here — including tasks
+            created during the recording. Completion goals are summarized under
+            each task; change those in Edit Study.
+          </p>
+
+          <div x-show="pathTasksError" class="msg msg-error" x-text="pathTasksError"></div>
+          <div x-show="pathTasksMsg" class="msg msg-success" x-text="pathTasksMsg"></div>
+
+          <template x-for="(t, ti) in pathTasks" :key="t.id">
+            <div class="survey-card">
+              <div class="survey-row">
+                <span class="task-row-num" x-text="ti + 1"></span>
+                <input class="input" style="flex:1;padding:6px 8px;font-size:13px"
+                       placeholder="Task prompt…"
+                       x-model="t.prompt">
+              </div>
+              <textarea class="input"
+                        style="margin-top:8px;padding:6px 8px;font-size:12px;min-height:40px;resize:vertical"
+                        maxlength="1000"
+                        placeholder="Instructions for the participant (optional — context, test credentials, hints…)"
+                        x-model="t.instructions"></textarea>
+              <p class="hint" style="margin-top:6px;margin-bottom:0"
+                 x-text="goalSummary(t.goal)"></p>
+            </div>
+          </template>
+
+          <button class="btn btn-primary btn-sm"
+                  @click="savePathTasks()"
+                  :disabled="pathTasksSaving">
+            <span x-show="!pathTasksSaving">Save Tasks</span>
+            <span x-show="pathTasksSaving">Saving…</span>
+          </button>
         </div>
 
         <!-- Mid-study surveys — editable here, unlike the path itself -->

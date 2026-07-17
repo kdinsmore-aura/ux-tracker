@@ -427,7 +427,13 @@ Deno.serve(async (req: Request) => {
             for (const nt of (newTasks as Record<string, unknown>[]).slice(0, 30)) {
               const prompt = capText(nt?.prompt, 300);
               if (!prompt) continue;
-              tasks.push({ id: ++nextTaskId, prompt, order: tasks.length });
+              const instructions = capText(nt?.instructions, 1000);
+              tasks.push({
+                id: ++nextTaskId,
+                prompt,
+                instructions: instructions || null,
+                order: tasks.length,
+              });
             }
           }
 

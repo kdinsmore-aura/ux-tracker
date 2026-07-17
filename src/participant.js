@@ -212,7 +212,7 @@ function _updatePanel() {
   if (_goalMode) {
     const idx  = Math.min(_currentTaskIndex, _sortedTasks.length - 1);
     const task = _sortedTasks[idx];
-    _panel.updateTask(task?.prompt ?? '', idx, _completedTasks, _sortedTasks.length);
+    _panel.updateTask(task?.prompt ?? '', task?.instructions ?? '', idx, _completedTasks, _sortedTasks.length);
     return;
   }
 
@@ -220,6 +220,7 @@ function _updatePanel() {
   const task      = _sortedTasks[taskIndex];
   _panel.updateTask(
     task?.prompt ?? '',
+    task?.instructions ?? '',
     _currentStepIndex,
     _completedSteps,
     _totalSteps,
@@ -633,6 +634,10 @@ const _PANEL_CSS = `
   #task-prompt {
     font-size: 15px; font-weight: 500; color: #1a1a2e; line-height: 1.5;
   }
+  #task-instructions {
+    font-size: 12.5px; color: #6c757d; line-height: 1.5;
+    white-space: pre-line; display: none;
+  }
   #progress-label { font-size: 12px; color: #6c757d; }
   #progress-track {
     height: 4px; background: #e9ecef; border-radius: 2px; overflow: hidden;
@@ -738,6 +743,7 @@ class UxtTaskPanel extends HTMLElement {
         </div>
         <div id="body">
           <div id="task-prompt"></div>
+          <div id="task-instructions"></div>
           <div id="progress-label">Task 1 of 1</div>
           <div id="progress-track"><div id="progress-fill"></div></div>
         </div>
@@ -792,8 +798,12 @@ class UxtTaskPanel extends HTMLElement {
     this._q('study-name').textContent = name;
   }
 
-  updateTask(prompt, currentStepIndex, completedSteps, total) {
-    this._q('task-prompt').textContent  = prompt;
+  updateTask(prompt, instructions, currentStepIndex, completedSteps, total) {
+    this._q('task-prompt').textContent = prompt;
+    const instrEl = this._q('task-instructions');
+    const text = (instructions || '').trim();
+    instrEl.textContent = text;
+    instrEl.style.display = text ? 'block' : 'none';
     this._q('progress-label').textContent = `Task ${currentStepIndex + 1} of ${total}`;
     const pct = total > 0 ? (completedSteps / total) * 100 : 0;
     this._q('progress-fill').style.width = `${pct}%`;

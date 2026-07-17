@@ -15,8 +15,9 @@ CREATE TABLE studies (
   name               text        NOT NULL,
   description        text,
   tasks              jsonb       NOT NULL DEFAULT '[]',
-  -- Array of: { id, prompt, order,
+  -- Array of: { id, prompt, instructions?, order,
   --   goal?: { type: 'screen', screenId } | { type: 'click', selector?, elementText? } }
+  -- instructions: optional context shown to the participant under the prompt.
   -- When a task has a goal, completion is goal-based (any route counts);
   -- the recorded ideal_path is used for efficiency analytics only.
   ideal_path         jsonb       NOT NULL DEFAULT '[]',
