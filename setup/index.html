@@ -522,39 +522,138 @@
         </div>
 
         <div class="path-list" x-show="!pathLoading && idealPath.length > 0">
-          <template x-for="(step, idx) in idealPath" :key="idx">
-            <div class="path-step">
+          <template x-for="(e, ei) in pathTimeline"
+                    :key="e.kind + '-' + (e.kind === 'step' ? e.idx : (e.kind === 'task' ? 't' + e.t.id : 's' + e.s.id))">
+            <div>
 
-              <div class="path-step-num" x-text="step.stepIndex + 1"></div>
-
-              <div class="path-step-body">
-                <div class="path-screen-id" x-text="'Screen: ' + step.screenId"></div>
-                <div class="path-selector"
-                     x-show="step.elementSelector"
-                     x-text="step.elementSelector"></div>
-                <div class="path-text"
-                     x-show="step.elementText"
-                     x-text="step.elementText"></div>
-                <div class="path-duration"
-                     x-text="'Expected time: ' + fmtMs(step.expectedDuration)"></div>
-              </div>
-
-              <!-- Screenshot thumbnail (click to enlarge) -->
-              <template x-if="stepShot(step)">
-                <img class="path-thumb"
-                     :src="stepShot(step)"
-                     :alt="'Screen ' + step.screenId"
-                     loading="lazy"
-                     role="button"
-                     tabindex="0"
-                     title="Click to enlarge"
-                     @click="openPreview(idx)"
-                     @keydown.enter.prevent="openPreview(idx)">
+              <!-- Task header (accordion — click to edit) -->
+              <template x-if="e.kind === 'task'">
+                <div class="tl-task">
+                  <div class="tl-task-head" @click="e.t._open = !e.t._open">
+                    <span class="tl-chevron" x-text="e.t._open ? '▾' : '▸'"></span>
+                    <span class="tl-task-title"
+                          x-text="'Task ' + (e.ti + 1) + ' — ' + (e.t.prompt || '(untitled)')"></span>
+                    <span class="tl-meta"
+                          x-text="e.count === null ? '' : (e.count + ' step' + (e.count !== 1 ? 's' : ''))"></span>
+                  </div>
+                  <div class="tl-body" x-show="e.t._open">
+                    <input class="input" style="padding:6px 8px;font-size:13px"
+                           placeholder="Task prompt…"
+                           x-model="e.t.prompt">
+                    <textarea class="input"
+                              style="padding:6px 8px;font-size:12px;min-height:40px;resize:vertical"
+                              maxlength="1000"
+                              placeholder="Instructions for the participant (optional — context, test credentials, hints…)"
+                              x-model="e.t.instructions"></textarea>
+                    <p class="hint" style="margin:0" x-text="goalSummary(e.t.goal)"></p>
+                  </div>
+                </div>
               </template>
 
-              <template x-if="!stepShot(step)">
-                <div class="path-no-thumb">
-                  <span>No screenshot</span>
+              <!-- Survey (accordion — click to edit) -->
+              <template x-if="e.kind === 'survey'">
+                <div class="tl-survey" :class="{ 'tl-indent': pathHasTasks }">
+                  <div class="tl-survey-head" @click="e.s._open = !e.s._open">
+                    <span class="tl-chevron" x-text="e.s._open ? '▾' : '▸'"></span>
+                    <span aria-hidden="true">📋</span>
+                    <span class="tl-survey-title"
+                          x-text="e.s.ratingPrompt || e.s.commentPrompt || 'Survey'"></span>
+                    <span class="tl-meta" x-text="surveyTriggerLabel(e.s)"></span>
+                    <span class="badge badge-draft" x-show="e.s.source === 'recorder'"
+                          title="Created with Mark Survey Point during recording">from recording</span>
+                    <button class="btn btn-danger-ghost btn-xs"
+                            title="Remove survey"
+                            @click.stop="removePathSurvey(e.s.id)">✕</button>
+                  </div>
+                  <div class="tl-body" x-show="e.s._open">
+                    <div class="survey-row">
+                      <span class="task-goal-label">When</span>
+                      <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                              x-model="e.s.triggerType">
+                        <option value="after_task">a task completes</option>
+                        <option value="screen_enter">a screen is reached</option>
+                      </select>
+                      <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                              x-show="e.s.triggerType === 'after_task'"
+                              x-model.number="e.s.afterTaskId">
+                        <template x-for="(t, ti) in pathTasks" :key="t.id">
+                          <option :value="t.id"
+                                  x-text="(ti + 1) + '. ' + (t.prompt || '(untitled)')"></option>
+                        </template>
+                      </select>
+                      <input class="input mono" style="flex:1;min-width:160px;padding:6px 8px;font-size:12px"
+                             x-show="e.s.triggerType === 'screen_enter'"
+                             list="screen-options"
+                             placeholder="/checkout/confirmation"
+                             x-model="e.s.screenId">
+                      <span class="task-goal-label" style="margin-left:10px">shown as</span>
+                      <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
+                              x-model="e.s.presentation">
+                        <option value="panel">panel card</option>
+                        <option value="overlay">blocking overlay</option>
+                      </select>
+                    </div>
+                    <label class="cfg-check" style="margin-top:8px">
+                      <input type="checkbox" x-model="e.s.ratingEnabled">
+                      <span>Star rating (1–5)</span>
+                    </label>
+                    <input class="input" style="margin-top:6px;padding:6px 8px;font-size:12px"
+                           x-show="e.s.ratingEnabled"
+                           placeholder="Rating prompt (e.g. How easy was that?)"
+                           x-model="e.s.ratingPrompt">
+                    <label class="cfg-check" style="margin-top:8px">
+                      <input type="checkbox" x-model="e.s.commentEnabled">
+                      <span>Comment box</span>
+                    </label>
+                    <input class="input" style="margin-top:6px;padding:6px 8px;font-size:12px"
+                           x-show="e.s.commentEnabled"
+                           placeholder="Comment prompt (e.g. What made it hard?)"
+                           x-model="e.s.commentPrompt">
+                    <label class="cfg-check" style="margin-top:8px"
+                           x-show="e.s.ratingEnabled || e.s.commentEnabled">
+                      <input type="checkbox" x-model="e.s.required">
+                      <span>Required — participant must answer before continuing</span>
+                    </label>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Recorded step (read-only) -->
+              <template x-if="e.kind === 'step'">
+                <div class="path-step" :class="{ 'tl-indent': pathHasTasks }">
+
+                  <div class="path-step-num" x-text="e.step.stepIndex + 1"></div>
+
+                  <div class="path-step-body">
+                    <div class="path-screen-id" x-text="'Screen: ' + e.step.screenId"></div>
+                    <div class="path-selector"
+                         x-show="e.step.elementSelector"
+                         x-text="e.step.elementSelector"></div>
+                    <div class="path-text"
+                         x-show="e.step.elementText"
+                         x-text="e.step.elementText"></div>
+                    <div class="path-duration"
+                         x-text="'Expected time: ' + fmtMs(e.step.expectedDuration)"></div>
+                  </div>
+
+                  <template x-if="stepShot(e.step)">
+                    <img class="path-thumb"
+                         :src="stepShot(e.step)"
+                         :alt="'Screen ' + e.step.screenId"
+                         loading="lazy"
+                         role="button"
+                         tabindex="0"
+                         title="Click to enlarge"
+                         @click="openPreview(e.idx)"
+                         @keydown.enter.prevent="openPreview(e.idx)">
+                  </template>
+
+                  <template x-if="!stepShot(e.step)">
+                    <div class="path-no-thumb">
+                      <span>No screenshot</span>
+                    </div>
+                  </template>
+
                 </div>
               </template>
 
@@ -583,128 +682,23 @@
           </template>
         </div>
 
-        <!-- Tasks — prompts and instructions editable here; goals in Edit Study -->
-        <div x-show="!pathLoading && pathTasks.length > 0" style="margin-top:28px">
-          <p class="section-label" x-text="'Tasks (' + pathTasks.length + ')'"></p>
-          <p class="hint" style="margin-bottom:10px">
-            Edit the prompts and participant instructions here — including tasks
-            created during the recording. Completion goals are summarized under
-            each task; change those in Edit Study.
-          </p>
-
-          <div x-show="pathTasksError" class="msg msg-error" x-text="pathTasksError"></div>
-          <div x-show="pathTasksMsg" class="msg msg-success" x-text="pathTasksMsg"></div>
-
-          <template x-for="(t, ti) in pathTasks" :key="t.id">
-            <div class="survey-card">
-              <div class="survey-row">
-                <span class="task-row-num" x-text="ti + 1"></span>
-                <input class="input" style="flex:1;padding:6px 8px;font-size:13px"
-                       placeholder="Task prompt…"
-                       x-model="t.prompt">
-              </div>
-              <textarea class="input"
-                        style="margin-top:8px;padding:6px 8px;font-size:12px;min-height:40px;resize:vertical"
-                        maxlength="1000"
-                        placeholder="Instructions for the participant (optional — context, test credentials, hints…)"
-                        x-model="t.instructions"></textarea>
-              <p class="hint" style="margin-top:6px;margin-bottom:0"
-                 x-text="goalSummary(t.goal)"></p>
-            </div>
-          </template>
-
-          <button class="btn btn-primary btn-sm"
-                  @click="savePathTasks()"
-                  :disabled="pathTasksSaving">
-            <span x-show="!pathTasksSaving">Save Tasks</span>
-            <span x-show="pathTasksSaving">Saving…</span>
-          </button>
-        </div>
-
-        <!-- Mid-study surveys — editable here, unlike the path itself -->
-        <div x-show="!pathLoading" style="margin-top:28px">
-          <p class="section-label">Mid-study Surveys</p>
-          <p class="hint" style="margin-bottom:10px">
-            Points marked with <strong>📋 Mark Survey Point</strong> during the
-            recording appear here — refine their prompts, or add more. Unlike
-            the path, surveys can be edited freely without invalidating sessions.
-          </p>
-
-          <div x-show="pathSurveysError" class="msg msg-error" x-text="pathSurveysError"></div>
-          <div x-show="pathSurveysMsg" class="msg msg-success" x-text="pathSurveysMsg"></div>
-
-          <template x-for="(s, si) in pathSurveys" :key="s.id">
-            <div class="survey-card">
-              <div class="survey-card-head">
-                <span class="survey-card-title" x-text="'Survey ' + (si + 1)"></span>
-                <button class="btn btn-danger-ghost btn-xs" @click="removePathSurvey(s.id)">✕ Remove</button>
-              </div>
-
-              <div class="survey-row">
-                <span class="task-goal-label">When</span>
-                <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
-                        x-model="s.triggerType">
-                  <option value="after_task">a task completes</option>
-                  <option value="screen_enter">a screen is reached</option>
-                </select>
-                <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
-                        x-show="s.triggerType === 'after_task'"
-                        x-model.number="s.afterTaskId">
-                  <template x-for="(t, ti) in (study?.tasks || [])" :key="t.id">
-                    <option :value="t.id"
-                            x-text="(ti + 1) + '. ' + (t.prompt || '(untitled)')"></option>
-                  </template>
-                </select>
-                <input class="input mono" style="flex:1;min-width:160px;padding:6px 8px;font-size:12px"
-                       x-show="s.triggerType === 'screen_enter'"
-                       list="screen-options"
-                       placeholder="/checkout/confirmation"
-                       x-model="s.screenId">
-                <span class="task-goal-label" style="margin-left:10px">shown as</span>
-                <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
-                        x-model="s.presentation">
-                  <option value="panel">panel card</option>
-                  <option value="overlay">blocking overlay</option>
-                </select>
-                <span class="badge badge-draft" x-show="s.source === 'recorder'"
-                      title="Created with Mark Survey Point during recording">from recording</span>
-              </div>
-
-              <label class="cfg-check" style="margin-top:10px">
-                <input type="checkbox" x-model="s.ratingEnabled">
-                <span>Star rating (1–5)</span>
-              </label>
-              <input class="input" style="margin-top:6px;padding:6px 8px;font-size:12px"
-                     x-show="s.ratingEnabled"
-                     placeholder="Rating prompt (e.g. How easy was that?)"
-                     x-model="s.ratingPrompt">
-
-              <label class="cfg-check" style="margin-top:10px">
-                <input type="checkbox" x-model="s.commentEnabled">
-                <span>Comment box</span>
-              </label>
-              <input class="input" style="margin-top:6px;padding:6px 8px;font-size:12px"
-                     x-show="s.commentEnabled"
-                     placeholder="Comment prompt (e.g. What made it hard?)"
-                     x-model="s.commentPrompt">
-
-              <label class="cfg-check" style="margin-top:10px"
-                     x-show="s.ratingEnabled || s.commentEnabled">
-                <input type="checkbox" x-model="s.required">
-                <span>Required — participant must answer before continuing</span>
-              </label>
-            </div>
-          </template>
-
-          <div class="btn-row" style="margin-top:4px">
+        <!-- Timeline actions: tasks + surveys are edited inline above -->
+        <div x-show="!pathLoading && idealPath.length > 0" style="margin-top:16px">
+          <div x-show="pathDetailsError" class="msg msg-error" x-text="pathDetailsError"></div>
+          <div x-show="pathDetailsMsg" class="msg msg-success" x-text="pathDetailsMsg"></div>
+          <div class="btn-row">
             <button class="btn btn-ghost btn-sm" @click="addPathSurvey()">+ Add Survey</button>
             <button class="btn btn-primary btn-sm"
-                    @click="savePathSurveys()"
-                    :disabled="pathSurveysSaving">
-              <span x-show="!pathSurveysSaving">Save Surveys</span>
-              <span x-show="pathSurveysSaving">Saving…</span>
+                    @click="savePathDetails()"
+                    :disabled="pathDetailsSaving">
+              <span x-show="!pathDetailsSaving">Save Changes</span>
+              <span x-show="pathDetailsSaving">Saving…</span>
             </button>
           </div>
+          <p class="hint" style="margin-top:6px">
+            Tasks and surveys live in the timeline above — click a row to expand
+            and edit it. The recorded steps themselves are read-only.
+          </p>
         </div>
 
         <div class="divider"></div>

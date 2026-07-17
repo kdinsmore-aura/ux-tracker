@@ -399,9 +399,13 @@ Deno.serve(async (req: Request) => {
               // rating-only so it's never an empty card.
               const commentOn = !!p?.commentEnabled;
               const ratingOn  = p?.ratingEnabled !== false || !commentOn;
+              const rawStep   = Number(p?.stepIndex);
               return {
                 id: ++nextId,
                 trigger: { type: 'screen_enter', screenId: sid },
+                // Position in the recorded path — used by the review page to
+                // slot the survey into the timeline exactly where it was marked.
+                stepIndex: Number.isInteger(rawStep) && rawStep >= 0 ? rawStep : null,
                 rating:  { enabled: ratingOn, prompt: capText(p?.ratingPrompt) },
                 comment: { enabled: commentOn, prompt: capText(p?.commentPrompt) },
                 required: !!p?.required,

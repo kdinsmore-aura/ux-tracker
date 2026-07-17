@@ -577,6 +577,95 @@ input[type="number"].input { max-width: 120px; }
   flex-wrap: wrap;
 }
 
+
+/* ── Review-path timeline (tasks + surveys interleaved with steps) ─────────── */
+
+.tl-task {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r);
+  background: var(--accent-light);
+  margin: 16px 0 4px;
+}
+
+.tl-task-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tl-task-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.tl-chevron {
+  width: 12px;
+  font-size: 11px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.tl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--r) var(--r);
+}
+
+.tl-survey {
+  border: 1px dashed var(--warn-border);
+  background: var(--warn-bg);
+  border-radius: var(--r);
+  margin: 8px 0;
+}
+
+.tl-survey-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12.5px;
+}
+
+.tl-survey-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-survey .tl-body {
+  border-top: 1px dashed var(--warn-border);
+}
+
+.tl-indent {
+  margin-left: 26px;
+}
+
 .warn-icon {
   display: inline-flex;
   align-items: center;

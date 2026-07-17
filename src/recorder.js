@@ -739,6 +739,18 @@ class UxtRecorderPanel extends HTMLElement {
     // Wait for any in-flight per-step screenshots before persisting the path.
     await Promise.allSettled(_state.pendingShots);
 
+    // Stamp each recorded step with the task it belongs to (exact — from the
+    // End Task boundaries) so the review page can group steps under tasks.
+    if (_state.taskBoundaries.length > 0) {
+      _state.idealPath.forEach((step, i) => {
+        let ti = _state.taskBoundaries.findIndex((b) => i < b.stepIndex);
+        if (ti === -1) {
+          ti = Math.min(_state.taskBoundaries.length, Math.max(0, _state.taskPrompts.length - 1));
+        }
+        step.taskIndex = ti;
+      });
+    }
+
     // Task boundaries become completion goals: the screen the task ended on,
     // or — when the task ended on the screen it started on — the last click
     // recorded before the boundary.

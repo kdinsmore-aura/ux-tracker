@@ -48,13 +48,10 @@ function setupApp() {
     previewIndex: null,  // index into previewItems for the screenshot modal (null = closed)
     pathSurveys: [],     // editable survey list (same shape as the step-2 editor)
     pathSurveyCounter: 1,
-    pathSurveysSaving: false,
-    pathSurveysMsg: '',
-    pathSurveysError: '',
     pathTasks: [],       // editable task prompts/instructions (goals shown read-only)
-    pathTasksSaving: false,
-    pathTasksMsg: '',
-    pathTasksError: '',
+    pathDetailsSaving: false,
+    pathDetailsMsg: '',
+    pathDetailsError: '',
 
     // ── Step 5 — Generate links ───────────────────────────────────────────────
     linkCount: 5,
@@ -405,6 +402,8 @@ function setupApp() {
         required: !!s.required,
         presentation: s.presentation === 'overlay' ? 'overlay' : 'panel',
         source: s.source === 'recorder' ? 'recorder' : null,
+        stepIndex: Number.isInteger(s.stepIndex) ? s.stepIndex : null,
+        _open: false,
       }));
     },
 
@@ -534,6 +533,7 @@ function setupApp() {
           comment: { enabled: s.commentEnabled, prompt: s.commentPrompt.trim() },
           required: !!s.required,
           presentation: s.presentation === 'overlay' ? 'overlay' : 'panel',
+          ...(Number.isInteger(s.stepIndex) ? { stepIndex: s.stepIndex } : {}),
         });
       }
 
@@ -649,16 +649,15 @@ function setupApp() {
           prompt: t.prompt || '',
           instructions: t.instructions || '',
           goal: t.goal || null,
+          _open: false,
         }));
-        this.pathTasksMsg = '';
-        this.pathTasksError = '';
+        this.pathDetailsMsg = '';
+        this.pathDetailsError = '';
 
         // Surveys are editable right here on the review page — including the
         // points marked with "Mark Survey Point" during the recording.
         this.pathSurveys = this._surveysToEditor(sr.data.surveys);
         this.pathSurveyCounter = this.pathSurveys.length + 1;
-        this.pathSurveysMsg = '';
-        this.pathSurveysError = '';
         this.screenOptions = (scr.data || []).map(s => s.screen_id).sort();
       } catch (e) {
         this.pathError = e.message;
@@ -679,16 +678,129 @@ function setupApp() {
       return 'No goal';
     },
 
-    // Persist prompt/instruction edits from the review page. Ids, order, and
-    // goals are preserved — only the researcher-facing text changes.
-    async savePathTasks() {
-      this.pathTasksError = '';
-      this.pathTasksMsg = '';
-      for (const t of this.pathTasks) {
-        if (!t.prompt.trim()) {
-          this.pathTasksError = 'Every task needs a prompt.';
-          return;
+    // ── Review-path timeline ─────────────────────────────────────────────────
+    // Tasks group the steps they cover; surveys slot in where they fire.
+
+    _screenGoalHit(stepScreenId, goalScreenId) {
+      const a = String(stepScreenId || '').toLowerCase().trim();
+      const b = String(goalScreenId || '').toLowerCase().trim();
+      if (!b) return false;
+      if (a === b) return true;
+      if (b.includes('?') || b.includes('#')) return false;
+      const norm = (s) => (s.split('#')[0].split('?')[0].replace(/\/+$/, '') || '/');
+      return norm(a) === norm(b);
+    },
+
+    // Which steps belong to which task. Prefers exact per-step taskIndex
+    // stamps (written by the recorder from End Task boundaries); falls back
+    // to simulating goal completion along the recorded path; returns null
+    // when tasks can't be segmented (some task lacks a goal and no stamps).
+    _taskSegments() {
+      const steps = this.idealPath || [];
+      const tasks = this.pathTasks || [];
+      if (tasks.length === 0 || steps.length === 0) return null;
+
+      const segs = [];
+      let cursor = 0;
+
+      if (steps.some(s => Number.isInteger(s.taskIndex))) {
+        for (let ti = 0; ti < tasks.length; ti++) {
+          let end = cursor - 1;
+          for (let i = cursor; i < steps.length; i++) {
+            if (steps[i].taskIndex === ti) end = i;
+            else if (Number.isInteger(steps[i].taskIndex) && steps[i].taskIndex > ti) break;
+          }
+          if (ti === tasks.length - 1) end = steps.length - 1;
+          segs.push({ task: tasks[ti], ti, start: cursor, end: Math.max(end, cursor - 1) });
+          cursor = Math.max(cursor, end + 1);
         }
+        return segs;
+      }
+
+      if (tasks.some(t => !t.goal)) return null;
+
+      for (let ti = 0; ti < tasks.length; ti++) {
+        const g = tasks[ti].goal;
+        let end = cursor - 1;
+        if (g.type === 'click') {
+          for (let k = cursor; k < steps.length; k++) {
+            const s = steps[k];
+            const selHit = g.selector && s.elementSelector === g.selector;
+            const txtHit = g.elementText && s.elementText &&
+              String(s.elementText).toLowerCase().includes(String(g.elementText).toLowerCase());
+            if (selHit || txtHit) { end = k; break; }
+          }
+        } else if (g.type === 'screen') {
+          for (let k = cursor; k < steps.length; k++) {
+            if (this._screenGoalHit(steps[k].screenId, g.screenId)) { end = k - 1; break; }
+          }
+        }
+        if (ti === tasks.length - 1) end = steps.length - 1;
+        if (end < cursor - 1) end = cursor - 1;
+        segs.push({ task: tasks[ti], ti, start: cursor, end });
+        cursor = Math.max(cursor, end + 1);
+      }
+      return segs;
+    },
+
+    get pathHasTasks() {
+      return this.pathTasks.length > 0;
+    },
+
+    // Ordered timeline entries: task headers, steps, and surveys interleaved
+    // in the order a participant experiences them.
+    get pathTimeline() {
+      const steps = this.idealPath || [];
+      const nSteps = steps.length;
+      const segs = this._taskSegments();
+      const entries = [];
+
+      const beforePos = {};      // after_task surveys — before the next task header
+      const afterHeaderPos = {}; // screen_enter surveys — after any header at that spot
+      for (const s of this.pathSurveys) {
+        let pos = nSteps;
+        let bucket = afterHeaderPos;
+        if (s.triggerType === 'after_task' && segs) {
+          const seg = segs.find(x => x.task.id === s.afterTaskId);
+          if (seg) { pos = Math.min(seg.end + 1, nSteps); bucket = beforePos; }
+        } else if (s.triggerType === 'screen_enter') {
+          if (Number.isInteger(s.stepIndex)) {
+            pos = Math.min(s.stepIndex, nSteps);
+          } else {
+            const m = steps.findIndex(st => this._screenGoalHit(st.screenId, s.screenId));
+            pos = m >= 0 ? m : nSteps;
+          }
+        }
+        (bucket[pos] = bucket[pos] || []).push(s);
+      }
+
+      for (let i = 0; i <= nSteps; i++) {
+        for (const s of (beforePos[i] || [])) entries.push({ kind: 'survey', s });
+        if (segs) {
+          for (const seg of segs) {
+            if (seg.start === i) {
+              entries.push({ kind: 'task', t: seg.task, ti: seg.ti, count: Math.max(0, seg.end - seg.start + 1) });
+            }
+          }
+        } else if (i === 0 && this.pathTasks.length > 0) {
+          // No reliable segmentation — stack the task headers up top.
+          this.pathTasks.forEach((t, ti) => entries.push({ kind: 'task', t, ti, count: null }));
+        }
+        for (const s of (afterHeaderPos[i] || [])) entries.push({ kind: 'survey', s });
+        if (i < nSteps) entries.push({ kind: 'step', step: steps[i], idx: i });
+      }
+      return entries;
+    },
+
+    surveyTriggerLabel(s) {
+      if (s.triggerType === 'screen_enter') return 'on reaching ' + (s.screenId || '?');
+      const ti = this.pathTasks.findIndex(t => t.id === s.afterTaskId);
+      return ti >= 0 ? `after task ${ti + 1}` : 'after a task';
+    },
+
+    _buildPathTasks() {
+      for (const t of this.pathTasks) {
+        if (!t.prompt.trim()) return { error: 'Every task needs a prompt.' };
       }
       const byId = {};
       this.pathTasks.forEach(t => { byId[t.id] = t; });
@@ -701,21 +813,66 @@ function setupApp() {
           instructions: (edit.instructions || '').trim() || null,
         };
       });
+      return { tasks };
+    },
 
-      this.pathTasksSaving = true;
+    _buildPathSurveys() {
+      const taskIds = new Set((this.study?.tasks || []).map(t => t.id));
+      const surveys = [];
+      for (const s of this.pathSurveys) {
+        if (!s.ratingEnabled && !s.commentEnabled) {
+          return { error: 'Each survey needs a rating or comment field enabled (or remove the survey).' };
+        }
+        let trigger;
+        if (s.triggerType === 'screen_enter') {
+          const sid = (s.screenId || '').trim().toLowerCase();
+          if (!sid) return { error: 'Each screen-triggered survey needs a screen.' };
+          trigger = { type: 'screen_enter', screenId: sid };
+        } else {
+          if (!taskIds.has(s.afterTaskId)) {
+            return { error: 'Each task-triggered survey must reference one of the study tasks.' };
+          }
+          trigger = { type: 'after_task', taskId: s.afterTaskId };
+        }
+        surveys.push({
+          id: surveys.length + 1,
+          trigger,
+          rating:  { enabled: s.ratingEnabled,  prompt: s.ratingPrompt.trim() },
+          comment: { enabled: s.commentEnabled, prompt: s.commentPrompt.trim() },
+          required: !!s.required,
+          presentation: s.presentation === 'overlay' ? 'overlay' : 'panel',
+          ...(Number.isInteger(s.stepIndex) ? { stepIndex: s.stepIndex } : {}),
+        });
+      }
+      return { surveys };
+    },
+
+    // Persist all timeline edits (task text + surveys) in one update. The
+    // recorded path itself stays read-only.
+    async savePathDetails() {
+      this.pathDetailsError = '';
+      this.pathDetailsMsg = '';
+      const t = this._buildPathTasks();
+      if (t.error) { this.pathDetailsError = t.error; return; }
+      const sv = this._buildPathSurveys();
+      if (sv.error) { this.pathDetailsError = sv.error; return; }
+
+      this.pathDetailsSaving = true;
       try {
         const { error } = await this._db
           .from('studies')
-          .update({ tasks, updated_at: new Date().toISOString() })
+          .update({ tasks: t.tasks, surveys: sv.surveys, updated_at: new Date().toISOString() })
           .eq('id', this.studyId);
         if (error) throw error;
-        this.study = { ...this.study, tasks };
-        this.pathTasksMsg = 'Tasks saved.';
-        setTimeout(() => { this.pathTasksMsg = ''; }, 2500);
+        this.study = { ...this.study, tasks: t.tasks, surveys: sv.surveys };
+        this.pathSurveys = this._surveysToEditor(sv.surveys);
+        this.pathSurveyCounter = this.pathSurveys.length + 1;
+        this.pathDetailsMsg = 'Changes saved.';
+        setTimeout(() => { this.pathDetailsMsg = ''; }, 2500);
       } catch (e) {
-        this.pathTasksError = 'Failed to save tasks: ' + (e.message || String(e));
+        this.pathDetailsError = 'Failed to save: ' + (e.message || String(e));
       } finally {
-        this.pathTasksSaving = false;
+        this.pathDetailsSaving = false;
       }
     },
 
@@ -731,6 +888,8 @@ function setupApp() {
         required: false,
         presentation: 'panel',
         source: null,
+        stepIndex: null,
+        _open: true,
       });
     },
 
@@ -738,63 +897,6 @@ function setupApp() {
       this.pathSurveys = this.pathSurveys.filter(s => s.id !== id);
     },
 
-    // Persist the review-page survey edits. Only the surveys column is
-    // touched — the recorded path stays read-only.
-    async savePathSurveys() {
-      this.pathSurveysError = '';
-      this.pathSurveysMsg = '';
-      const taskIds = new Set((this.study?.tasks || []).map(t => t.id));
-      const surveys = [];
-      for (const s of this.pathSurveys) {
-        if (!s.ratingEnabled && !s.commentEnabled) {
-          this.pathSurveysError = 'Each survey needs a rating or comment field enabled (or remove the survey).';
-          return;
-        }
-        let trigger;
-        if (s.triggerType === 'screen_enter') {
-          const sid = (s.screenId || '').trim().toLowerCase();
-          if (!sid) {
-            this.pathSurveysError = 'Each screen-triggered survey needs a screen.';
-            return;
-          }
-          trigger = { type: 'screen_enter', screenId: sid };
-        } else {
-          if (!taskIds.has(s.afterTaskId)) {
-            this.pathSurveysError = 'Each task-triggered survey must reference one of the study tasks.';
-            return;
-          }
-          trigger = { type: 'after_task', taskId: s.afterTaskId };
-        }
-        // Saving takes ownership (drops the recorder marker) so a later
-        // re-recording won't overwrite these edits.
-        surveys.push({
-          id: surveys.length + 1,
-          trigger,
-          rating:  { enabled: s.ratingEnabled,  prompt: s.ratingPrompt.trim() },
-          comment: { enabled: s.commentEnabled, prompt: s.commentPrompt.trim() },
-          required: !!s.required,
-          presentation: s.presentation === 'overlay' ? 'overlay' : 'panel',
-        });
-      }
-
-      this.pathSurveysSaving = true;
-      try {
-        const { error } = await this._db
-          .from('studies')
-          .update({ surveys, updated_at: new Date().toISOString() })
-          .eq('id', this.studyId);
-        if (error) throw error;
-        this.study = { ...this.study, surveys };
-        this.pathSurveys = this._surveysToEditor(surveys);
-        this.pathSurveyCounter = this.pathSurveys.length + 1;
-        this.pathSurveysMsg = 'Surveys saved.';
-        setTimeout(() => { this.pathSurveysMsg = ''; }, 2500);
-      } catch (e) {
-        this.pathSurveysError = 'Failed to save surveys: ' + (e.message || String(e));
-      } finally {
-        this.pathSurveysSaving = false;
-      }
-    },
 
     fmtMs(ms) {
       if (ms == null) return '—';
