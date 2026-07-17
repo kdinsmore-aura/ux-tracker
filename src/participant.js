@@ -52,6 +52,11 @@ let _goalMode            = false;
 let _endScreenId         = '';
 let _visitedOtherScreen  = false;
 let _sessionCompleted    = false; // guards double-completion across triggers
+// Order-sorted task index → last recorded step of that task's segment
+// (taskIndex stamps written by the recorder; absent on older recordings).
+// Lets goalless tasks complete when their recorded segment is done instead
+// of auto-completing instantly.
+let _taskLastStep        = {};
 let _currentTaskIndex    = 0;
 let _completedTasks      = 0;
 let _surveys             = [];    // study.surveys (after_task triggers)
@@ -348,15 +353,64 @@ function _clickMatchesGoal(clickData, goal) {
   return false;
 }
 
+// A task without an explicit goal must still be EARNED, never granted on
+// cascade — otherwise a goalless final task (recording ended mid-task, so no
+// End Task boundary created a goal) completes the instant the previous task
+// does, stacking its survey behind the previous one and showing the
+// completion screen before the participant ever did the work. It completes
+// when:
+//  - the reference-path cursor has passed the task's recorded segment
+//    (taskIndex stamps), or — for the FINAL task —
+//  - the participant reaches the recording's end screen (guarded like the
+//    strict-mode fallback: they must have been somewhere else first), or
+//  - they click the element the recording ended on (same-URL wizards), or
+//  - the whole recorded path has been matched.
+// Middle tasks with no goal AND no recorded segment (setup-authored studies,
+// older recordings) keep the previous auto-complete — nothing is measurable.
+function _goallessTaskDone(screenId, clickData) {
+  const idx     = _currentTaskIndex;
+  const isFinal = idx >= _sortedTasks.length - 1;
+  const segEnd  = _taskLastStep[idx];
+  const hasSeg  = Number.isInteger(segEnd);
+
+  // Recorded segment matched in full — done in any position.
+  if (hasSeg && _currentStepIndex > segEnd) return true;
+
+  if (isFinal) {
+    if (_totalSteps > 0 && _currentStepIndex >= _totalSteps) return true;
+    if (_endScreenId && _visitedOtherScreen &&
+        _screenMatchesGoal(screenId, _endScreenId)) {
+      return true;
+    }
+    const last = Array.isArray(_study?.ideal_path)
+      ? _study.ideal_path[_study.ideal_path.length - 1]
+      : null;
+    if (clickData && last && (last.elementSelector || last.elementText) &&
+        _clickMatchesGoal(clickData, {
+          selector:    last.elementSelector || null,
+          elementText: last.elementText || null,
+        })) {
+      return true;
+    }
+    return false;
+  }
+
+  // Middle task: segment still pending → not done; no segment recorded →
+  // auto-complete (pre-existing behavior — nothing is measurable).
+  return !hasSeg;
+}
+
 // Evaluate the active task's goal against the current screen (and click, when
-// one triggered the evaluation). Tasks without a goal auto-complete in goal
-// mode, cascading to the next task.
+// one triggered the evaluation).
 function _evaluateActiveGoal(screenId, clickData) {
   if (!_goalMode) return;
   const task = _activeTask();
   if (!task) return;
   const goal = _taskGoal(task);
-  if (!goal) { _completeTask(screenId); return; }
+  if (!goal) {
+    if (_goallessTaskDone(screenId, clickData)) _completeTask(screenId);
+    return;
+  }
   if (goal.type === 'screen' && _screenMatchesGoal(screenId, goal.screenId)) {
     _completeTask(screenId);
     return;
@@ -426,18 +480,22 @@ function _completeTask(screenId) {
 //    so a full page load onto the end screen still completes.
 //  - Matching reuses _screenMatchesGoal: plain path end screens match any
 //    query/hash variant; query- or hash-pinned end screens match exactly.
+// Track whether the participant has been on any screen other than the end
+// screen this session. Maintained in BOTH modes — strict mode gates the
+// end-screen fallback on it, and goal mode gates the goalless final task's
+// end-screen completion on it.
+function _trackEndScreen(screenId) {
+  if (!_endScreenId || _visitedOtherScreen) return;
+  if (!_screenMatchesGoal(screenId, _endScreenId)) {
+    _visitedOtherScreen = true;
+    _saveState();
+  }
+}
+
 function _checkEndScreenCompletion(screenId) {
   if (_goalMode || _sessionCompleted) return;
   if (!_endScreenId || _totalSteps === 0) return;
-
-  if (!_screenMatchesGoal(screenId, _endScreenId)) {
-    if (!_visitedOtherScreen) {
-      _visitedOtherScreen = true;
-      _saveState();
-    }
-    return;
-  }
-
+  if (!_screenMatchesGoal(screenId, _endScreenId)) return;
   if (!_visitedOtherScreen) return;
 
   _completeSession('end_screen').catch((err) => {
@@ -556,6 +614,7 @@ function _handleClick(clickData) {
 
   bufferEvent(event, _getState(), _participantId);
 
+  _trackEndScreen(screenId);
   _maybeFireElementSurveys(clickData, screenId);
 
   if (_goalMode) {
@@ -628,6 +687,7 @@ async function _handleNavigation() {
   bufferEvent(_makeEvent('screen_enter', newScreenId, {}), _getState(), _participantId);
 
   _runScreenChangeDetection(_sessionId, newScreenId).catch(() => {});
+  _trackEndScreen(newScreenId);
   _evaluateActiveGoal(newScreenId, null);
   _maybeFireScreenSurveys(newScreenId);
   _checkEndScreenCompletion(newScreenId);
@@ -1228,6 +1288,16 @@ export default async function initParticipant(config, study) {
   const lastStep     = idealPathArr[idealPathArr.length - 1];
   _endScreenId       = (lastStep && (lastStep.endScreenId || lastStep.screenId)) || '';
 
+  // Recorded segment boundaries: taskIndex stamps map each step to its task
+  // (order-sorted index). The last stamped step per task marks where that
+  // task's segment ends — how goalless tasks earn completion.
+  _taskLastStep = {};
+  idealPathArr.forEach((s, i) => {
+    if (Number.isInteger(s?.taskIndex)) {
+      _taskLastStep[s.taskIndex] = Number.isInteger(s.stepIndex) ? s.stepIndex : i;
+    }
+  });
+
   // 4. Check for existing session state
   const existingState   = getSessionState(participantId);
   const hasExisting     = existingState !== null;
@@ -1358,6 +1428,7 @@ function _activateTracking() {
   // evaluate the landing screen: the active task's goal (this is how screen
   // goals complete across real navigations), any screen-triggered surveys,
   // and the end-screen fallback (a deviating participant may land here).
+  _trackEndScreen(_currentScreenId);
   _evaluateActiveGoal(_currentScreenId, null);
   _maybeFireScreenSurveys(_currentScreenId);
   _checkEndScreenCompletion(_currentScreenId);
