@@ -351,7 +351,7 @@ Deno.serve(async (req: Request) => {
       }
 
       case 'updateStudyIdealPath': {
-        const { studyId, idealPath, status, recordedSurveys, taskGoals } = payload;
+        const { studyId, idealPath, status, recordedSurveys, taskGoals, newTasks } = payload;
         if (!studyId) return bad('studyId is required');
         if (!idealPath) return bad('idealPath is required');
         if (status !== 'active') return bad('status must be active');
@@ -365,9 +365,10 @@ Deno.serve(async (req: Request) => {
         const capText = (v: unknown, max = 200) => String(v ?? '').trim().slice(0, max);
         const wantSurveys   = Array.isArray(recordedSurveys);
         const wantTaskGoals = Array.isArray(taskGoals) && (taskGoals as unknown[]).length > 0;
+        const wantNewTasks  = Array.isArray(newTasks) && (newTasks as unknown[]).length > 0;
 
         let studyRow: Record<string, unknown> | null = null;
-        if (wantSurveys || wantTaskGoals) {
+        if (wantSurveys || wantTaskGoals || wantNewTasks) {
           const { data, error: sErr } = await db
             .from('studies')
             .select('surveys, tasks')
@@ -412,29 +413,45 @@ Deno.serve(async (req: Request) => {
           update.surveys = [...manual, ...recorded];
         }
 
-        // "End Task" boundaries from the recorder become task completion
-        // goals, applied by order-sorted task index. Tasks without a
-        // boundary keep whatever goal they already have.
-        if (wantTaskGoals) {
-          const tasks = Array.isArray(studyRow?.tasks) ? studyRow.tasks as Record<string, unknown>[] : [];
-          const sorted = [...tasks].sort((a, b) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
-          for (const tg of (taskGoals as Record<string, unknown>[]).slice(0, 50)) {
-            const idx = Number(tg?.taskIndex);
-            const g = tg?.goal as Record<string, unknown> | null;
-            if (!Number.isInteger(idx) || idx < 0 || idx >= sorted.length || !g) continue;
-            if (g.type === 'screen' && g.screenId) {
-              sorted[idx].goal = {
-                type: 'screen',
-                screenId: capText(g.screenId, 300).toLowerCase(),
-              };
-            } else if (g.type === 'click' && (g.selector || g.elementText)) {
-              sorted[idx].goal = {
-                type: 'click',
-                selector:    g.selector ? capText(g.selector, 300) : null,
-                elementText: g.elementText ? capText(g.elementText) : null,
-              };
+        // Tasks created in-recording are appended first (so boundary indices
+        // line up with the combined list), then "End Task" boundaries become
+        // task completion goals, applied by order-sorted index. Tasks without
+        // a boundary keep whatever goal they already have.
+        if (wantNewTasks || wantTaskGoals) {
+          const tasks = Array.isArray(studyRow?.tasks)
+            ? [...(studyRow.tasks as Record<string, unknown>[])]
+            : [];
+
+          if (wantNewTasks) {
+            let nextTaskId = tasks.reduce((m, t) => Math.max(m, Number(t?.id) || 0), 0);
+            for (const nt of (newTasks as Record<string, unknown>[]).slice(0, 30)) {
+              const prompt = capText(nt?.prompt, 300);
+              if (!prompt) continue;
+              tasks.push({ id: ++nextTaskId, prompt, order: tasks.length });
             }
           }
+
+          if (wantTaskGoals) {
+            const sorted = [...tasks].sort((a, b) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
+            for (const tg of (taskGoals as Record<string, unknown>[]).slice(0, 50)) {
+              const idx = Number(tg?.taskIndex);
+              const g = tg?.goal as Record<string, unknown> | null;
+              if (!Number.isInteger(idx) || idx < 0 || idx >= sorted.length || !g) continue;
+              if (g.type === 'screen' && g.screenId) {
+                sorted[idx].goal = {
+                  type: 'screen',
+                  screenId: capText(g.screenId, 300).toLowerCase(),
+                };
+              } else if (g.type === 'click' && (g.selector || g.elementText)) {
+                sorted[idx].goal = {
+                  type: 'click',
+                  selector:    g.selector ? capText(g.selector, 300) : null,
+                  elementText: g.elementText ? capText(g.elementText) : null,
+                };
+              }
+            }
+          }
+
           update.tasks = tasks;
         }
 

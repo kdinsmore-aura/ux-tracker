@@ -103,9 +103,11 @@ export async function updateStudyScreenChangesFlag(studyId) {
  *   recorder-sourced ones and keeping manual ones)
  * - taskGoals: [{ taskIndex, goal }] derived from "End Task" boundaries;
  *   applied onto the study's tasks so completion is goal-based.
+ * - newTasks: [{ prompt }] created in-recording; appended to the study's
+ *   tasks (before goals are applied, so boundary indices line up).
  */
-export async function updateStudyIdealPath(studyId, idealPath, status, recordedSurveys = null, taskGoals = null) {
-  return ingest('updateStudyIdealPath', { studyId, idealPath, status, recordedSurveys, taskGoals });
+export async function updateStudyIdealPath(studyId, idealPath, status, recordedSurveys = null, taskGoals = null, newTasks = null) {
+  return ingest('updateStudyIdealPath', { studyId, idealPath, status, recordedSurveys, taskGoals, newTasks });
 }
 
 // ─── Screen operations (ingest) ──────────────────────────────────────────────
