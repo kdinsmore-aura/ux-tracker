@@ -217,6 +217,9 @@ function setupApp() {
         studyId: this.studyId,
       }));
       if (step === 1) await this._loadStudies();
+      if (step === 3 && !this.protoUrl.trim() && this.studyId) {
+        this.protoUrl = localStorage.getItem(`uxt_proto_base_${this.studyId}`) || '';
+      }
       if (step === 4) await this._loadPath();
       if (step === 5) {
         // Restore the base URL last used for this study so existing links
@@ -612,6 +615,10 @@ function setupApp() {
       url.searchParams.set('mode', 'record');
       url.searchParams.set('study', this.studyId);
       window.open(url.toString(), '_blank');
+
+      // Remember the prototype URL for this study so the Generate Links step
+      // prefills the same base, and a later re-record starts from it too.
+      try { localStorage.setItem(`uxt_proto_base_${this.studyId}`, raw); } catch {}
 
       this.recordWaiting = true;
       this._poll = setInterval(() => this._pollStatus(), 5000);
