@@ -27,7 +27,7 @@ function setupApp() {
 
     // ── Step 2 — Create / edit study ──────────────────────────────────────────
     editMode: false,
-    newStudy: { name: '', description: '', tasks: [], surveys: [], completion: { thankYou: '', rating: { enabled: false, prompt: '' }, comment: { enabled: false, prompt: '' }, required: false } },
+    newStudy: { name: '', description: '', tasks: [], surveys: [], completion: { thankYou: '', rating: { enabled: false, prompt: '' }, comment: { enabled: false, prompt: '' }, required: false }, welcome: { title: '', message: '' } },
     surveyCounter: 1,
     screenOptions: [],   // recorded screen ids, suggested in the goal picker
     taskCounter: 1,
@@ -314,6 +314,7 @@ function setupApp() {
         }),
         surveys: this._surveysToEditor(study.surveys),
         completion: this._normalizeCompletion(study.completion),
+        welcome: this._normalizeWelcome(study.welcome),
       };
       this.taskCounter = this.newStudy.tasks.length + 1;
       this.surveyCounter = this.newStudy.surveys.length + 1;
@@ -355,7 +356,7 @@ function setupApp() {
       this.editMode = false;
       this.studyId = null;
       this.study = null;
-      this.newStudy = { name: '', description: '', tasks: [], surveys: [], completion: this._normalizeCompletion(null) };
+      this.newStudy = { name: '', description: '', tasks: [], surveys: [], completion: this._normalizeCompletion(null), welcome: this._normalizeWelcome(null) };
       this.taskCounter = 1;
       this.surveyCounter = 1;
       this.screenOptions = [];
@@ -476,6 +477,23 @@ function setupApp() {
       };
     },
 
+    // Fill in any missing welcome-screen fields with defaults (used when
+    // loading an existing study or resetting the form).
+    _normalizeWelcome(w) {
+      w = w || {};
+      return {
+        title:   w.title || '',
+        message: w.message || '',
+      };
+    },
+
+    // Trim the welcome-screen config for persistence. Blank fields fall back
+    // to generic copy in the participant modal.
+    _cleanWelcome(w) {
+      const n = this._normalizeWelcome(w);
+      return { title: n.title.trim(), message: n.message.trim() };
+    },
+
     async saveStudy() {
       this.createError = '';
       if (!this.newStudy.name.trim()) {
@@ -561,6 +579,7 @@ function setupApp() {
         tasks,
         surveys,
         completion:  this._cleanCompletion(this.newStudy.completion),
+        welcome:     this._cleanWelcome(this.newStudy.welcome),
       };
 
       try {

@@ -100,6 +100,72 @@ function _showGuardMessage(message) {
   document.body.appendChild(host);
 }
 
+// ─── Welcome gate ─────────────────────────────────────────────────────────────
+
+// Full-page welcome/instructions modal shown before a new session starts.
+// Researcher-authored title/message come from study.welcome (set via
+// textContent, so they're never parsed as HTML); generic copy fills any
+// blanks. The session — and its clock — starts when Begin is clicked.
+function _showWelcome(onBegin) {
+  const cfg     = (_study && _study.welcome) || {};
+  const title   = (cfg.title && String(cfg.title).trim()) || 'Welcome!';
+  const message = (cfg.message && String(cfg.message).trim()) ||
+    "Thanks for taking part in this study. You'll work through a few short " +
+    'tasks — your current task is always shown in the panel at the corner of ' +
+    'the screen. There are no right or wrong answers; just use the site as ' +
+    "you naturally would.\n\nClick Begin when you're ready to start.";
+
+  const host   = document.createElement('div');
+  const shadow = host.attachShadow({ mode: 'closed' });
+  shadow.innerHTML = `
+    <style>
+      :host { all: initial; }
+      #overlay {
+        position: fixed; inset: 0; background: rgba(17,24,39,.55);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 2147483647; padding: 24px; box-sizing: border-box;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      #card {
+        background: #ffffff; border-radius: 14px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.3);
+        padding: 28px; width: 460px; max-width: 92vw;
+        max-height: 84vh; overflow-y: auto; box-sizing: border-box;
+        display: flex; flex-direction: column; gap: 14px;
+      }
+      #study-name {
+        font-size: 11px; color: #6c757d; font-weight: 500;
+        letter-spacing: .04em; text-transform: uppercase;
+      }
+      #title { font-size: 20px; font-weight: 600; color: #1a1a2e; line-height: 1.3; }
+      #msg   { font-size: 14px; color: #374151; line-height: 1.6; white-space: pre-line; }
+      #begin {
+        align-self: flex-start; padding: 10px 24px; border: none;
+        border-radius: 8px; background: #4f46e5; color: #fff;
+        font-size: 14px; font-weight: 600; cursor: pointer;
+        transition: opacity .15s; margin-top: 4px;
+      }
+      #begin:hover { opacity: .9; }
+    </style>
+    <div id="overlay">
+      <div id="card">
+        <div id="study-name"></div>
+        <div id="title"></div>
+        <div id="msg"></div>
+        <button id="begin" type="button">Begin</button>
+      </div>
+    </div>
+  `;
+  shadow.getElementById('study-name').textContent = _study?.name ?? '';
+  shadow.getElementById('title').textContent      = title;
+  shadow.getElementById('msg').textContent        = message;
+  shadow.getElementById('begin').addEventListener('click', () => {
+    host.remove();
+    onBegin();
+  }, { once: true });
+  document.body.appendChild(host);
+}
+
 // ─── On-path matching ─────────────────────────────────────────────────────────
 
 function _isOnPath(clickData, expectedStep) {
@@ -1100,7 +1166,7 @@ export default async function initParticipant(config, study) {
   const expired         = hasExisting && isSessionExpired(existingState);
 
   if (hasExisting && !expired) {
-    // 5. Resume session
+    // 5. Resume session (page 2+, refreshes) — no welcome gate.
     _sessionId        = existingState.sessionId;
     _currentStepIndex = existingState.currentStepIndex ?? 0;
     _completedSteps   = existingState.completedSteps ?? 0;
@@ -1119,66 +1185,86 @@ export default async function initParticipant(config, study) {
       completed_steps:    _completedSteps,
     }).catch((err) => console.error('[UXTracker Participant] updateSession (resume) error:', err));
 
-  } else {
-    // 6. New session (or expired)
-    if (expired && existingState?.sessionId) {
-      updateSession(existingState.sessionId, _participantId, { status: 'abandoned' })
-        .catch(() => {});
-    }
+    _activateTracking();
+    return;
+  }
 
-    const now = new Date().toISOString();
-    let newSession;
-    try {
-      newSession = await createSession({
-        study_id:         studyId,
-        participant_id:   participantId,
-        status:           'in_progress',
-        current_step_index: 0,
-        total_steps:      _totalSteps,
-        completed_steps:  0,
-        viewport_width:   window.innerWidth,
-        viewport_height:  window.innerHeight,
-        user_agent:       navigator.userAgent,
-        started_at:       now,
-      });
-    } catch (err) {
+  // 6. New session (or expired) — welcome/instructions gate first. Nothing
+  // is created or tracked until the participant clicks Begin, so time spent
+  // reading never counts against duration metrics, and closing the tab at
+  // the welcome leaves the participant re-invitable (still 'invited').
+  _showWelcome(() => {
+    _startNewSession(studyId, existingState, expired).catch((err) => {
       console.error('[UXTracker Participant] createSession error:', err);
-      return;
-    }
+    });
+  });
+}
 
-    _sessionId        = newSession.id;
-    _currentStepIndex = 0;
-    _completedSteps   = 0;
-    _sessionStartTime = Date.now();
-    _lastEventTime    = Date.now();
-    _screenChanges    = [];
-    _currentTaskIndex = 0;
-    _completedTasks   = 0;
-    _firedSurveys     = [];
-    _surveyResponses  = [];
+// Create the session row and start tracking — runs when Begin is clicked.
+async function _startNewSession(studyId, existingState, expired) {
+  if (expired && existingState?.sessionId) {
+    updateSession(existingState.sessionId, _participantId, { status: 'abandoned' })
+      .catch(() => {});
+  }
 
-    updateParticipantStatus(participantId, 'in_progress', {
-      started_at: now,
-      session_id: _sessionId,
-    }).catch((err) => console.error('[UXTracker Participant] updateParticipantStatus error:', err));
+  const now = new Date().toISOString();
+  let newSession;
+  try {
+    newSession = await createSession({
+      study_id:         studyId,
+      participant_id:   _participantId,
+      status:           'in_progress',
+      current_step_index: 0,
+      total_steps:      _totalSteps,
+      completed_steps:  0,
+      viewport_width:   window.innerWidth,
+      viewport_height:  window.innerHeight,
+      user_agent:       navigator.userAgent,
+      started_at:       now,
+    });
+  } catch (err) {
+    console.error('[UXTracker Participant] createSession error:', err);
+    return;
+  }
 
-    _saveState();
+  _sessionId        = newSession.id;
+  _currentStepIndex = 0;
+  _completedSteps   = 0;
+  _sessionStartTime = Date.now();
+  _lastEventTime    = Date.now();
+  _screenChanges    = [];
+  _currentTaskIndex = 0;
+  _completedTasks   = 0;
+  _firedSurveys     = [];
+  _surveyResponses  = [];
 
+  updateParticipantStatus(_participantId, 'in_progress', {
+    started_at: now,
+    session_id: _sessionId,
+  }).catch((err) => console.error('[UXTracker Participant] updateParticipantStatus error:', err));
+
+  _saveState();
+
+  bufferEvent(
+    _makeEvent('session_start', computeScreenId(_config.screens), {}),
+    _getState(),
+    _participantId,
+  );
+
+  if (_goalMode) {
     bufferEvent(
-      _makeEvent('session_start', computeScreenId(_config.screens), {}),
+      _makeEvent('task_start', computeScreenId(_config.screens), { step_index: 0 }),
       _getState(),
       _participantId,
     );
-
-    if (_goalMode) {
-      bufferEvent(
-        _makeEvent('task_start', computeScreenId(_config.screens), { step_index: 0 }),
-        _getState(),
-        _participantId,
-      );
-    }
   }
 
+  _activateTracking();
+}
+
+// Steps 7–10: click capture, navigation listeners, panel, and landing-screen
+// evaluation. Shared by resume and the post-Begin path of a new session.
+function _activateTracking() {
   // 7. Start click capture
   startClickCapture(_handleClick);
 

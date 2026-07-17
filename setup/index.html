@@ -392,6 +392,30 @@
           </button>
         </div>
 
+        <!-- Welcome / instructions modal config -->
+        <div class="form-group">
+          <label>Welcome Screen</label>
+          <p class="hint" style="margin-bottom:10px">
+            Shown as a modal when a participant first opens their link. They
+            click <strong>Begin</strong> to start the study — the session timer
+            starts then. Generic text is used for anything left blank.
+          </p>
+
+          <input class="input"
+                 type="text"
+                 maxlength="120"
+                 placeholder='Heading (optional — defaults to "Welcome!")'
+                 x-model="newStudy.welcome.title">
+
+          <textarea id="study-welcome"
+                    class="input"
+                    rows="4"
+                    style="margin-top:6px"
+                    maxlength="2000"
+                    placeholder="Welcome message and instructions (optional — line breaks are kept, so you can write step-by-step instructions)"
+                    x-model="newStudy.welcome.message"></textarea>
+        </div>
+
         <!-- Completion screen / feedback config -->
         <div class="form-group">
           <label>Completion Screen</label>

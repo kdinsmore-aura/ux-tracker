@@ -303,10 +303,15 @@ export default function resolveConfig() {
         mode: 'record', studyId: merged.studyId || null,
       }));
     } else if (merged.mode === 'participant') {
+      // Only persist when the entry URL actually carries the participant id —
+      // otherwise (explicit participant mode on page 2+) an unconditional
+      // write would clobber the saved id with null and break session resume.
       const participantId = new URLSearchParams(window.location.search).get('participant');
-      sessionStorage.setItem(PARTICIPANT_SESSION_KEY, JSON.stringify({
-        mode: 'participant', studyId: merged.studyId || null, participantId,
-      }));
+      if (participantId) {
+        sessionStorage.setItem(PARTICIPANT_SESSION_KEY, JSON.stringify({
+          mode: 'participant', studyId: merged.studyId || null, participantId,
+        }));
+      }
     } else if (merged.mode === 'idle') {
       const savedRec = JSON.parse(sessionStorage.getItem(RECORDING_SESSION_KEY) || 'null');
       if (savedRec?.mode === 'record') {

@@ -26,6 +26,10 @@ CREATE TABLE studies (
   -- Completion-screen config: { thankYou, rating:{enabled,prompt},
   --   comment:{enabled,prompt}, required }
   completion         jsonb       NOT NULL DEFAULT '{}',
+  -- Welcome-modal config: { title, message } — shown before a new session
+  -- starts; generic copy fills any blanks. The participant clicks Begin to
+  -- start the study (the session clock starts then).
+  welcome            jsonb       NOT NULL DEFAULT '{}',
   -- Mid-study surveys: [{ id,
   --   trigger: { type:'after_task', taskId } | { type:'screen_enter', screenId }
   --          | { type:'element_click', selector?, elementText? },
