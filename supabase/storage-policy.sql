@@ -32,11 +32,18 @@ ON CONFLICT (id) DO NOTHING;
 -- storage.objects already has RLS enabled in every Supabase project;
 -- these policies layer on top of that default.
 
--- NOTE: no SELECT policy on purpose. The bucket is public, so objects
--- are served at /object/public/* without any policy — the dashboard's
--- screenshot URLs keep working. A broad SELECT policy would additionally
--- let anyone LIST every file in the bucket via the API (advisor lint
--- 0025), which leaks the filenames of all captured screenshots.
+-- Anon read: REQUIRED for upsert overwrites, not just convenience.
+-- Supabase Storage resolves an upsert by first looking up the existing
+-- object row as the requesting role; without SELECT the row is invisible
+-- and every re-upload fails with "new row violates row-level security
+-- policy" — which breaks all screenshots from a study's second recording
+-- onward. Trade-off (accepted): anyone with the anon key can LIST this
+-- bucket's object names (screen-id-derived filenames; advisor lint 0025).
+-- The images themselves are public regardless — the bucket is public.
+CREATE POLICY "screenshots_anon_select"
+  ON storage.objects FOR SELECT
+  TO anon
+  USING (bucket_id = 'ux-tracker-screenshots');
 
 -- Anon write: the UX Tracker recorder script uploads screenshots
 -- immediately after capturing a DOM fingerprint. It runs in the
