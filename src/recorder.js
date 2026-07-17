@@ -182,17 +182,21 @@ async function captureCurrentScreen() {
   }
 
   try {
-    await upsertScreen({
+    const row = {
       study_id: _state.studyId,
       screen_id: screenId,
-      screenshot_url: screenshotUrl,
       screenshot_hash: hash,
       viewport_width: window.innerWidth,
       viewport_height: window.innerHeight,
       scroll_x: window.scrollX,
       scroll_y: window.scrollY,
       captured_at: new Date().toISOString(),
-    });
+    };
+    // Only touch screenshot_url on a successful upload — upsert updates
+    // every provided column, so sending null here would clobber a good URL
+    // from an earlier recording whenever an upload fails.
+    if (screenshotUrl) row.screenshot_url = screenshotUrl;
+    await upsertScreen(row);
   } catch (err) {
     console.error('[UXTracker Recorder] upsertScreen failed:', err);
   }
@@ -270,7 +274,6 @@ const _PANEL_CSS = `
     font-size: 12px; font-weight: 500; cursor: pointer; transition: opacity .15s;
   }
   button:hover { opacity: .82; }
-  #btn-capture { background: #313244; color: #cdd6f4; flex: 1; }
   #btn-mark    { background: #40a02b; color: #fff; flex: 1; }
   #btn-endtask { background: #f9e2af; color: #1e1e2e; width: 100%; }
   #btn-endtask:disabled { opacity: .5; cursor: default; }
@@ -369,7 +372,6 @@ class UxtRecorderPanel extends HTMLElement {
           <div class="meta" id="screen-counter">0 screens captured</div>
           <div class="meta" id="survey-counter">0 survey points</div>
           <div class="btn-row">
-            <button id="btn-capture" title="Alt+Shift+C">Capture Screen</button>
             <button id="btn-mark" title="Alt+Shift+M">Mark Step</button>
           </div>
           <button id="btn-endtask" title="Alt+Shift+T" style="display:none">✓ End Task</button>
@@ -423,7 +425,6 @@ class UxtRecorderPanel extends HTMLElement {
       </div>
     `;
 
-    this._q('btn-capture').addEventListener('click', () => captureCurrentScreen());
     this._q('btn-mark').addEventListener('click', () => this._markStep());
     this._q('btn-endtask').addEventListener('click', () => this._onTaskButton());
     this._q('tf-start').addEventListener('click', () => this._startNewTask());
@@ -453,7 +454,6 @@ class UxtRecorderPanel extends HTMLElement {
     });
 
     this._keyHandler = (e) => {
-      if (e.altKey && e.shiftKey && e.key === 'C') { e.preventDefault(); captureCurrentScreen(); }
       if (e.altKey && e.shiftKey && e.key === 'M') { e.preventDefault(); this._markStep(); }
       if (e.altKey && e.shiftKey && e.key === 'S') { e.preventDefault(); this._toggleSurveyForm(); }
       if (e.altKey && e.shiftKey && e.key === 'T') { e.preventDefault(); this._onTaskButton(); }
