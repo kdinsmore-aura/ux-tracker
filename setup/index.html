@@ -327,6 +327,7 @@
                         x-model="s.triggerType">
                   <option value="after_task">a task completes</option>
                   <option value="screen_enter">a screen is reached</option>
+                  <option value="element_click">an element is clicked</option>
                 </select>
                 <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
                         x-show="s.triggerType === 'after_task'"
@@ -341,6 +342,14 @@
                        list="screen-options"
                        placeholder="/checkout/confirmation"
                        x-model="s.screenId">
+                <input class="input mono" style="flex:1;min-width:120px;padding:6px 8px;font-size:12px"
+                       x-show="s.triggerType === 'element_click'"
+                       placeholder="#btn-3  (CSS selector)"
+                       x-model="s.elSelector">
+                <input class="input" style="flex:1;min-width:120px;padding:6px 8px;font-size:12px"
+                       x-show="s.triggerType === 'element_click'"
+                       placeholder="Go to Orbit  (visible text)"
+                       x-model="s.elText">
                 <span class="task-goal-label" style="margin-left:10px">shown as</span>
                 <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
                         x-model="s.presentation">
@@ -581,6 +590,7 @@
                               x-model="e.s.triggerType">
                         <option value="after_task">a task completes</option>
                         <option value="screen_enter">a screen is reached</option>
+                        <option value="element_click">an element is clicked</option>
                       </select>
                       <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
                               x-show="e.s.triggerType === 'after_task'"
@@ -595,6 +605,14 @@
                              list="screen-options"
                              placeholder="/checkout/confirmation"
                              x-model="e.s.screenId">
+                      <input class="input mono" style="flex:1;min-width:120px;padding:6px 8px;font-size:12px"
+                             x-show="e.s.triggerType === 'element_click'"
+                             placeholder="#btn-3  (CSS selector)"
+                             x-model="e.s.elSelector">
+                      <input class="input" style="flex:1;min-width:120px;padding:6px 8px;font-size:12px"
+                             x-show="e.s.triggerType === 'element_click'"
+                             placeholder="Go to Orbit  (visible text)"
+                             x-model="e.s.elText">
                       <span class="task-goal-label" style="margin-left:10px">shown as</span>
                       <select class="input" style="width:auto;padding:6px 8px;font-size:12px"
                               x-model="e.s.presentation">

@@ -400,9 +400,19 @@ Deno.serve(async (req: Request) => {
               const commentOn = !!p?.commentEnabled;
               const ratingOn  = p?.ratingEnabled !== false || !commentOn;
               const rawStep   = Number(p?.stepIndex);
+              // Mid-screen points fire after a specific click; others fire on
+              // reaching the screen.
+              const isElement = p?.triggerType === 'element_click' && (p?.selector || p?.elementText);
+              const trigger = isElement
+                ? {
+                    type: 'element_click',
+                    selector:    p?.selector ? capText(p.selector, 300) : null,
+                    elementText: p?.elementText ? capText(p.elementText) : null,
+                  }
+                : { type: 'screen_enter', screenId: sid };
               return {
                 id: ++nextId,
-                trigger: { type: 'screen_enter', screenId: sid },
+                trigger,
                 // Position in the recorded path — used by the review page to
                 // slot the survey into the timeline exactly where it was marked.
                 stepIndex: Number.isInteger(rawStep) && rawStep >= 0 ? rawStep : null,

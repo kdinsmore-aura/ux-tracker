@@ -364,6 +364,19 @@ function _maybeFireScreenSurveys(screenId) {
   }
 }
 
+// Element-triggered surveys fire right after the participant clicks the
+// matching element — the precise tool for flows that change in-page state
+// without changing the screen (multi-step wizards and the like).
+function _maybeFireElementSurveys(clickData, screenId) {
+  for (const s of _surveys) {
+    if (s?.trigger?.type === 'element_click' &&
+        !_firedSurveys.includes(s.id) &&
+        _clickMatchesGoal(clickData, s.trigger)) {
+      _enqueueSurvey(s, screenId);
+    }
+  }
+}
+
 function _showNextSurvey() {
   if (_surveyActive || !_panel || _surveyQueue.length === 0) return;
   const { survey, screenId } = _surveyQueue.shift();
@@ -428,6 +441,8 @@ function _handleClick(clickData) {
   });
 
   bufferEvent(event, _getState(), _participantId);
+
+  _maybeFireElementSurveys(clickData, screenId);
 
   if (_goalMode) {
     // Reference-path cursor still advances for analytics, but completion is

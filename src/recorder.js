@@ -781,10 +781,25 @@ class UxtRecorderPanel extends HTMLElement {
 
     const newTasks = _state.newTasks.length > 0 ? _state.newTasks : null;
 
+    // Derive each survey point's trigger: marked right after arriving on a
+    // new screen → fires on reaching that screen; marked mid-screen (the
+    // previous click happened on the same screen, e.g. inside a wizard) →
+    // fires right after that click, so in-page flow points stay precise.
+    const surveyPayload = _state.surveyPoints.map((p) => {
+      const lastStep = _state.idealPath[p.stepIndex - 1];
+      const midScreen = lastStep && lastStep.screenId === p.screenId &&
+        (lastStep.elementSelector || lastStep.elementText);
+      return midScreen
+        ? { ...p, triggerType: 'element_click',
+            selector: lastStep.elementSelector || null,
+            elementText: lastStep.elementText || null }
+        : { ...p, triggerType: 'screen_enter' };
+    });
+
     try {
       await updateStudyIdealPath(
         _state.studyId, _state.idealPath, 'active',
-        _state.surveyPoints, taskGoals, newTasks,
+        surveyPayload, taskGoals, newTasks,
       );
     } catch (err) {
       console.error('[UXTracker Recorder] Failed to save ideal path:', err);

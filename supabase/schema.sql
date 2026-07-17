@@ -27,11 +27,14 @@ CREATE TABLE studies (
   --   comment:{enabled,prompt}, required }
   completion         jsonb       NOT NULL DEFAULT '{}',
   -- Mid-study surveys: [{ id,
-  --   trigger: { type:'after_task', taskId } | { type:'screen_enter', screenId },
+  --   trigger: { type:'after_task', taskId } | { type:'screen_enter', screenId }
+  --          | { type:'element_click', selector?, elementText? },
   --   rating:{enabled,prompt}, comment:{enabled,prompt},
-  --   required, presentation:'panel'|'overlay',
+  --   required, presentation:'panel'|'overlay', stepIndex?,
   --   source?: 'recorder' — created via "Mark Survey Point" while recording;
   --     replaced wholesale on re-record (manual surveys are preserved) }]
+  -- element_click fires right after a matching click — the precise trigger for
+  -- in-page flows (wizards) where the screen id never changes.
   surveys            jsonb       NOT NULL DEFAULT '[]',
   status             text        NOT NULL DEFAULT 'draft',
   has_screen_changes boolean     NOT NULL DEFAULT false,

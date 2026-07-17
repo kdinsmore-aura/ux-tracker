@@ -394,9 +394,12 @@ function setupApp() {
     _surveysToEditor(rawSurveys) {
       return (Array.isArray(rawSurveys) ? rawSurveys : []).map((s, i) => ({
         id: i + 1,
-        triggerType: s.trigger?.type === 'screen_enter' ? 'screen_enter' : 'after_task',
+        triggerType: (s.trigger?.type === 'screen_enter' || s.trigger?.type === 'element_click')
+          ? s.trigger.type : 'after_task',
         afterTaskId: s.trigger?.taskId ?? null,
         screenId: s.trigger?.screenId || '',
+        elSelector: s.trigger?.selector || '',
+        elText: s.trigger?.elementText || '',
         ratingEnabled: !!s.rating?.enabled,
         ratingPrompt: s.rating?.prompt || '',
         commentEnabled: !!s.comment?.enabled,
@@ -416,6 +419,7 @@ function setupApp() {
         triggerType: 'after_task',
         afterTaskId: firstTask ? firstTask.id : null,
         screenId: '',
+        elSelector: '', elText: '',
         ratingEnabled: true,  ratingPrompt: '',
         commentEnabled: false, commentPrompt: '',
         required: false,
@@ -517,6 +521,14 @@ function setupApp() {
             return;
           }
           trigger = { type: 'screen_enter', screenId: sid };
+        } else if (s.triggerType === 'element_click') {
+          const sel = (s.elSelector || '').trim();
+          const txt = (s.elText || '').trim();
+          if (!sel && !txt) {
+            this.createError = 'Each element-triggered survey needs a selector or visible text.';
+            return;
+          }
+          trigger = { type: 'element_click', selector: sel || null, elementText: txt || null };
         } else {
           const taskId = idMap[s.afterTaskId];
           if (!taskId) {
@@ -772,6 +784,16 @@ function setupApp() {
             const m = steps.findIndex(st => this._screenGoalHit(st.screenId, s.screenId));
             pos = m >= 0 ? m : nSteps;
           }
+        } else if (s.triggerType === 'element_click') {
+          if (Number.isInteger(s.stepIndex)) {
+            pos = Math.min(s.stepIndex, nSteps);
+          } else {
+            const m = steps.findIndex(st =>
+              (s.elSelector && st.elementSelector === s.elSelector) ||
+              (s.elText && st.elementText &&
+               String(st.elementText).toLowerCase().includes(s.elText.toLowerCase())));
+            pos = m >= 0 ? Math.min(m + 1, nSteps) : nSteps;
+          }
         }
         (bucket[pos] = bucket[pos] || []).push(s);
       }
@@ -817,13 +839,34 @@ function setupApp() {
         s.stepIndex = null;
       } else {
         const pos = Math.min(target.pos ?? steps.length, steps.length);
-        s.triggerType = 'screen_enter';
         if (pos < steps.length) {
-          s.screenId = steps[pos].screenId || s.screenId;
-          s.stepIndex = pos;
+          const prev = pos > 0 ? steps[pos - 1] : null;
+          if (prev && prev.screenId === steps[pos].screenId &&
+              (prev.elementSelector || prev.elementText)) {
+            // Mid-screen drop: no screen change here, so fire right after
+            // the preceding click (wizard-style flows stay precise).
+            s.triggerType = 'element_click';
+            s.elSelector = prev.elementSelector || '';
+            s.elText = prev.elementText || '';
+            s.stepIndex = pos;
+          } else {
+            s.triggerType = 'screen_enter';
+            s.screenId = steps[pos].screenId || s.screenId;
+            s.stepIndex = pos;
+          }
         } else {
           const last = steps[steps.length - 1];
-          s.screenId = last?.endScreenId || last?.screenId || s.screenId;
+          if (last?.endScreenId && last.endScreenId !== last.screenId) {
+            s.triggerType = 'screen_enter';
+            s.screenId = last.endScreenId;
+          } else if (last && (last.elementSelector || last.elementText)) {
+            s.triggerType = 'element_click';
+            s.elSelector = last.elementSelector || '';
+            s.elText = last.elementText || '';
+          } else {
+            s.triggerType = 'screen_enter';
+            s.screenId = last?.screenId || s.screenId;
+          }
           s.stepIndex = steps.length;
         }
       }
@@ -837,6 +880,9 @@ function setupApp() {
 
     surveyTriggerLabel(s) {
       if (s.triggerType === 'screen_enter') return 'on reaching ' + (s.screenId || '?');
+      if (s.triggerType === 'element_click') {
+        return 'after clicking ' + (s.elSelector || (s.elText ? `"${s.elText}"` : '?'));
+      }
       const ti = this.pathTasks.findIndex(t => t.id === s.afterTaskId);
       return ti >= 0 ? `after task ${ti + 1}` : 'after a task';
     },
@@ -871,6 +917,11 @@ function setupApp() {
           const sid = (s.screenId || '').trim().toLowerCase();
           if (!sid) return { error: 'Each screen-triggered survey needs a screen.' };
           trigger = { type: 'screen_enter', screenId: sid };
+        } else if (s.triggerType === 'element_click') {
+          const sel = (s.elSelector || '').trim();
+          const txt = (s.elText || '').trim();
+          if (!sel && !txt) return { error: 'Each element-triggered survey needs a selector or visible text.' };
+          trigger = { type: 'element_click', selector: sel || null, elementText: txt || null };
         } else {
           if (!taskIds.has(s.afterTaskId)) {
             return { error: 'Each task-triggered survey must reference one of the study tasks.' };
@@ -926,6 +977,7 @@ function setupApp() {
         triggerType: 'after_task',
         afterTaskId: firstTask ? firstTask.id : null,
         screenId: '',
+        elSelector: '', elText: '',
         ratingEnabled: true,  ratingPrompt: '',
         commentEnabled: false, commentPrompt: '',
         required: false,
