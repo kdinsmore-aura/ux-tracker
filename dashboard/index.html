@@ -705,90 +705,49 @@
             </div>
           </div>
 
-          <!-- Route taken -->
-          <div class="drawer-section" x-show="drawerRoute.length > 0">
-            <div class="drawer-section-title">Route Taken</div>
-            <div class="route-summary">
-              <span x-text="drawerRoute.length + ' screen' + (drawerRoute.length !== 1 ? 's' : '') + ' visited'"></span>
-              <span x-show="drawerDetourCount > 0" class="route-summary-detours"
-                    x-text="'· ' + drawerDetourCount + ' off the recorded route'"></span>
-              <span x-show="drawerDetourCount === 0" class="route-summary-clean">· matched the recorded route</span>
-            </div>
-            <div class="route-chips">
-              <template x-for="(r, i) in drawerRoute" :key="i">
-                <span class="route-item">
-                  <span class="route-arrow" x-show="i > 0">→</span>
-                  <span class="route-chip"
-                        :class="r.onIdeal ? 'on-ideal' : 'detour'"
-                        :title="(r.onIdeal ? 'On the recorded route' : 'Detour — not on the recorded route') + ' · reached at ' + fmtMs(r.ms)">
-                    <span x-show="r.isEnd" class="route-end-flag">🏁</span>
-                    <span x-text="r.screen"></span>
-                  </span>
-                </span>
-              </template>
-            </div>
-            <div class="route-legend">
-              <span class="route-legend-item"><span class="route-swatch on-ideal"></span> on recorded route</span>
-              <span class="route-legend-item"><span class="route-swatch detour"></span> detour</span>
-              <span class="route-legend-item">🏁 end screen</span>
-            </div>
-          </div>
-
-          <!-- Timeline -->
+          <!-- Session journey — subway map -->
           <div class="drawer-section">
-            <div class="drawer-section-title">Event Timeline</div>
-            <div class="timeline-track" x-ref="timelineTrack">
-              <div class="timeline-track-line"></div>
-              <template x-for="(ev, i) in drawerEvents" :key="ev.id">
-                <div class="timeline-dot"
-                     :class="timelineDotClass(ev)"
-                     :style="'left:' + timelinePct(ev) + '%'"
-                     @mouseenter="showTooltip($event, ev)"
-                     @mouseleave="hideTooltip()">
-                </div>
-              </template>
-            </div>
-            <div class="timeline-legend">
-              <div class="timeline-legend-item">
-                <div class="timeline-legend-dot" style="background:#2563EB"></div>
-                On-path click
-              </div>
-              <div class="timeline-legend-item">
-                <div class="timeline-legend-dot" style="background:#EA580C;border-radius:2px;transform:rotate(45deg)"></div>
-                Mis-click
-              </div>
-              <div class="timeline-legend-item">
-                <div class="timeline-legend-dot" style="background:var(--text-3)"></div>
-                Screen transition
-              </div>
-            </div>
-          </div>
+            <div class="drawer-section-title">Session Journey</div>
+            <div class="journey-summary" x-show="journey.slots.length > 0"
+                 x-text="journey.summary"></div>
 
-          <!-- Step breakdown -->
-          <div class="drawer-section">
-            <div class="drawer-section-title">Step-by-Step Breakdown</div>
-            <div class="step-breakdown">
-              <template x-for="step in drawerStepBreakdown" :key="step.stepIndex">
-                <div class="step-row">
-                  <div class="step-row-num" :class="step.completed ? 'done' : 'missed'"
-                       x-text="step.stepIndex + 1"></div>
-                  <div class="step-row-info">
-                    <div x-text="step.elementText || step.elementSelector"></div>
-                    <div class="step-row-selector" x-text="step.elementSelector"></div>
-                    <div class="step-row-meta">
-                      <span x-show="step.completed">
-                        <span x-text="fmtMs(step.timeMs)"></span>
-                      </span>
-                      <span x-show="step.attempts > 0">
-                        <span x-text="step.attempts + ' attempt' + (step.attempts !== 1 ? 's' : '')"></span>
-                      </span>
-                      <span x-show="!step.completed" class="text-danger">Not completed</span>
-                    </div>
+            <div class="msg msg-info" x-show="journey.slots.length === 0" style="margin-bottom:0">
+              No journey data for this session.
+            </div>
+
+            <div class="journey-scroll" x-show="journey.slots.length > 0"
+                 @click="journeyClick($event)"
+                 @mouseover="journeyHover($event)"
+                 @mouseout="hideTooltip()">
+              <div class="journey-inner" x-html="journeySvg"></div>
+            </div>
+
+            <!-- Node detail popout -->
+            <div class="journey-popout" x-show="journeyPopout" x-cloak>
+              <div class="journey-popout-head">
+                <span class="journey-popout-title" x-text="journeyPopout?.title"></span>
+                <button class="drawer-close" @click="journeyPopout = null">✕</button>
+              </div>
+              <img class="journey-popout-shot"
+                   x-show="journeyPopout?.shot"
+                   :src="journeyPopout?.shot || ''"
+                   alt="Step screenshot">
+              <div class="journey-popout-rows">
+                <template x-for="(row, i) in (journeyPopout?.rows || [])" :key="i">
+                  <div class="journey-popout-row">
+                    <span class="jp-k" x-text="row[0]"></span>
+                    <span class="jp-v" x-text="row[1]"></span>
                   </div>
-                </div>
-              </template>
-              <div class="msg msg-info" x-show="drawerStepBreakdown.length === 0"
-                   style="margin-bottom:0">No step data available for this session.</div>
+                </template>
+              </div>
+            </div>
+
+            <div class="journey-legend" x-show="journey.slots.length > 0">
+              <span class="jl-item"><span class="jl-line main"></span> recorded path</span>
+              <span class="jl-item"><span class="jl-line journey"></span> participant</span>
+              <span class="jl-item"><span class="jl-dot dev"></span> off-path point</span>
+              <span class="jl-item"><span class="jl-dot drop"></span> drop-off</span>
+              <span class="jl-item jl-hint">click any point for details</span>
             </div>
           </div>
 

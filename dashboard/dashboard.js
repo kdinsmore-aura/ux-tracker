@@ -133,6 +133,7 @@ function dashboardApp() {
     drawerLoading: false,
     drawerSession: null,
     drawerEvents: [],
+    journeyPopout: null,   // detail card for the clicked journey node
 
     // ── Chart instances ────────────────────────────────────────────────────
     _taskChart: null,
@@ -941,11 +942,16 @@ function dashboardApp() {
       this.drawerOpen = true;
       this.drawerLoading = true;
       this.drawerEvents = [];
+      this.journeyPopout = null;
+
+      // Screen-level screenshots back the journey popouts when a step has no
+      // per-step capture — load them lazily (no-op once loaded).
+      this.loadScreens().catch(() => {});
 
       try {
         const { data, error } = await this._db
           .from('events')
-          .select('id, event_type, step_index, screen_id, element_selector, element_text, viewport_x, viewport_y, is_on_path, is_mis_click, advances_step, ms_since_session_start, timestamp')
+          .select('id, event_type, step_index, screen_id, element_selector, element_text, element_tag, viewport_x, viewport_y, is_on_path, is_mis_click, advances_step, ms_since_session_start, timestamp')
           .eq('session_id', session.id)
           .order('ms_since_session_start', { ascending: true });
 
@@ -957,50 +963,19 @@ function dashboardApp() {
 
     closeDrawer() {
       this.drawerOpen = false;
+      this.journeyPopout = null;
       setTimeout(() => {
         this.drawerSession = null;
         this.drawerEvents = [];
       }, 250);
     },
 
-    get drawerStepBreakdown() {
-      if (!this.drawerSession || !this.study?.ideal_path) return [];
-      const idealPath = this.study.ideal_path;
-      const events = this.drawerEvents;
-
-      return idealPath.map(pathStep => {
-        const si = pathStep.stepIndex;
-        const stepEvs = events.filter(e => e.step_index === si && e.event_type === 'click');
-        const advanced = stepEvs.find(e => e.advances_step);
-
-        let timeMs = 0;
-        if (advanced) {
-          // Time from start of this step to advancement
-          const prevAdvance = si > 0
-            ? events.slice().reverse().find(e => e.step_index === si - 1 && e.advances_step)
-            : events.find(e => e.event_type === 'session_start');
-          if (prevAdvance) {
-            timeMs = Math.max(0, advanced.ms_since_session_start - (prevAdvance.ms_since_session_start || 0));
-          } else {
-            timeMs = advanced.ms_since_session_start || 0;
-          }
-        }
-
-        return {
-          stepIndex: si,
-          elementSelector: pathStep.elementSelector,
-          elementText: pathStep.elementText,
-          completed: !!advanced,
-          attempts: stepEvs.length,
-          timeMs,
-        };
-      });
-    },
-
-    // ── Route taken (session drawer) ─────────────────────────────────────────
-    // The actual screen-by-screen route, reconstructed from every event's
-    // screen_id in time order (clicks included — full page loads don't emit
-    // screen_enter, so clicks are what reveal those navigations).
+    // ── Session journey (subway map) ─────────────────────────────────────────
+    // The recorded path is the printed line: Start → numbered step stations →
+    // 🏁 end screen. The participant's ride overlays it: green along the main
+    // line while on path, dipping to an amber branch lane for off-path clicks
+    // and off-route pages, then either curving back up (rejoined) or ending
+    // in a terminal marker (dropped / completed elsewhere).
 
     completedViaLabel(v) {
       return {
@@ -1015,76 +990,320 @@ function dashboardApp() {
       return x.length > 1 ? x.replace(/\/+$/, '') : x;
     },
 
-    // The recorded route: unique-consecutive screens of the ideal path, plus
-    // the end screen the recording stopped on (when it differs).
-    get drawerIdealRoute() {
-      const path = this.study?.ideal_path || [];
-      const route = [];
-      for (const step of path) {
-        const sid = this._normScreen(step.screenId);
-        if (sid && route[route.length - 1] !== sid) route.push(sid);
-      }
-      const last = path[path.length - 1];
-      const end = this._normScreen(last?.endScreenId || '');
-      if (end && route[route.length - 1] !== end) route.push(end);
-      return route;
+    _shortScreen(s) {
+      const x = String(s || '');
+      const tail = x.split('/').filter(Boolean).pop() || x || '/';
+      return tail.length > 16 ? tail.slice(0, 15) + '…' : tail;
     },
 
-    // Chips for the drawer: each screen the participant visited, marked
-    // on-ideal (matches the recorded route, in forward order) or detour.
-    // Backtracks count as detours — they deviate from forward progress.
-    get drawerRoute() {
-      if (!this.drawerSession) return [];
-      const route = [];
-      for (const ev of this.drawerEvents) {
-        const sid = this._normScreen(ev.screen_id);
-        if (sid && route[route.length - 1]?.screen !== sid) {
-          route.push({ screen: sid, ms: ev.ms_since_session_start || 0 });
+    _escXml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+    },
+
+    // Build the journey model: stations (Start + recorded steps + end screen),
+    // deviations grouped after the station the participant was at, and the
+    // session outcome. Slots give every node a sequential x position so long
+    // journeys spread out instead of clumping (the container scrolls).
+    get journey() {
+      const empty = { slots: [], stations: [], outcome: null, summary: '', devCount: 0 };
+      const s = this.drawerSession;
+      const path = this.study?.ideal_path || [];
+      if (!s || path.length === 0) return empty;
+      const evs = this.drawerEvents;
+
+      // Screen-level screenshot fallback (per-step captures can die when the
+      // click navigates; the screen capture of the same page fills in).
+      const screensMap = {};
+      (this.screens.list || []).forEach((sc) => {
+        screensMap[this._normScreen(sc.screen_id)] = sc.screenshot_url;
+      });
+
+      const idealScreens = new Set(path.map((p) => this._normScreen(p.screenId)));
+      const lastStep   = path[path.length - 1];
+      const endScreen  = this._normScreen(lastStep?.endScreenId || '');
+      if (endScreen) idealScreens.add(endScreen);
+
+      // Stations
+      const startScreen = this._normScreen(
+        evs.find((e) => e.event_type === 'session_start')?.screen_id || path[0]?.screenId);
+      const stations = [{
+        kind: 'start', label: 'Start', screenId: startScreen,
+        shot: screensMap[startScreen] || null, reached: true, ms: 0,
+      }];
+      path.forEach((p, i) => {
+        const sid = this._normScreen(p.screenId);
+        stations.push({
+          kind: 'step', idx: i, label: String(i + 1), screenId: sid,
+          elementText: p.elementText || '', selector: p.elementSelector || '',
+          shot: p.screenshotUrl || screensMap[sid] || null,
+          reached: false, ms: null,
+        });
+      });
+      if (endScreen) {
+        stations.push({
+          kind: 'end', label: 'End', screenId: endScreen,
+          shot: lastStep.endScreenshotUrl || screensMap[endScreen] || null,
+          reached: false, ms: null,
+        });
+      }
+
+      // Walk events: mark reached step stations, hang deviations off the
+      // station the participant was at when they veered.
+      let pos = 0;                                   // index into stations
+      const devAfter = stations.map(() => []);
+      for (const e of evs) {
+        if (e.event_type === 'click') {
+          const st = stations[1 + (e.step_index ?? -99)];
+          if (e.advances_step && st && st.kind === 'step') {
+            st.reached   = true;
+            st.ms        = e.ms_since_session_start;
+            st.clickText = e.element_text || '';
+            pos = 1 + e.step_index;
+          } else if (e.is_mis_click) {
+            devAfter[pos].push({
+              kind: 'click', ms: e.ms_since_session_start,
+              text: e.element_text || '', selector: e.element_selector || '',
+              tag: e.element_tag || '', screenId: this._normScreen(e.screen_id),
+              afterStation: pos,
+            });
+          }
+        } else if (e.event_type === 'screen_enter') {
+          const sid = this._normScreen(e.screen_id);
+          if (sid && !idealScreens.has(sid)) {
+            const list = devAfter[pos];
+            const prev = list[list.length - 1];
+            if (!(prev && prev.kind === 'screen' && prev.screenId === sid)) {
+              list.push({
+                kind: 'screen', ms: e.ms_since_session_start,
+                screenId: sid, afterStation: pos,
+              });
+            }
+          }
         }
       }
 
-      const ideal = this.drawerIdealRoute;
-      const endScreen = ideal[ideal.length - 1] || null;
-      let ptr = 0;
-      return route.map((r, i) => {
-        const idx = ideal.indexOf(r.screen, ptr);
-        const onIdeal = idx >= 0;
-        if (onIdeal) ptr = idx + 1;
-        return {
-          ...r,
-          onIdeal,
-          isEnd: i === route.length - 1 && !!endScreen && r.screen === endScreen,
-        };
+      // End station: reached when the session completed and the participant
+      // actually got there (any event on it, or end-screen completion).
+      const endStation = endScreen ? stations[stations.length - 1] : null;
+      if (endStation && s.status === 'completed') {
+        const visitedEnd = evs.some((e) => this._normScreen(e.screen_id) === endScreen);
+        if (visitedEnd || s.completed_via === 'end_screen' || s.completed_via === 'path') {
+          endStation.reached = true;
+          endStation.ms = s.duration_ms ?? null;
+        }
+      }
+
+      // Outcome
+      let outcome;
+      if (s.status === 'completed') {
+        outcome = { kind: s.completed_via || 'path', label: this.completedViaLabel(s.completed_via) };
+      } else if (s.status === 'abandoned') {
+        outcome = { kind: 'dropped', label: 'Dropped off' };
+      } else {
+        outcome = { kind: 'in_progress', label: 'Still in progress' };
+      }
+
+      // Slots: station, then its trailing deviations, repeating. A terminal
+      // marker is appended after the participant's final position unless the
+      // journey already ends at a reached end station.
+      const slots = [];
+      stations.forEach((st, i) => {
+        slots.push({ type: 'station', station: st, si: i });
+        devAfter[i].forEach((d) => slots.push({ type: 'dev', dev: d, si: i }));
       });
+
+      const journeyEndsAtEnd = endStation && endStation.reached;
+      if (!journeyEndsAtEnd) {
+        let at = slots.length - 1;
+        for (let i = slots.length - 1; i >= 0; i--) {
+          if (slots[i].si === pos) { at = i; break; }
+        }
+        slots.splice(at + 1, 0, { type: 'terminal', outcome, si: pos });
+      }
+
+      const devCount = devAfter.reduce((n, l) => n + l.length, 0);
+      const reachedSteps = stations.filter((st) => st.kind === 'step' && st.reached).length;
+      const parts = [outcome.label];
+      if (s.duration_ms != null) parts.push(this.fmtDuration(s.duration_ms));
+      parts.push(`${reachedSteps}/${path.length} recorded steps matched`);
+      parts.push(devCount === 0 ? 'no off-path points' :
+        `${devCount} off-path point${devCount !== 1 ? 's' : ''}`);
+
+      return { slots, stations, outcome, devCount, summary: parts.join(' · ') };
     },
 
-    get drawerDetourCount() {
-      return this.drawerRoute.filter(r => !r.onIdeal).length;
+    // SVG renderer. Every interactive node carries data-node="<slot index>";
+    // clicks and hovers are delegated from the container.
+    get journeySvg() {
+      const J = this.journey;
+      if (!J.slots.length) return '';
+      const SP = 88, M = 70, yMain = 58, yDev = 122, H = 168;
+      const X = (i) => M + i * SP;
+      const W = M * 2 + (J.slots.length - 1) * SP;
+      const sel = this.journeyPopout?.nodeId;
+      const esc = (v) => this._escXml(v);
+      const out = [];
+
+      // Printed line: straight through every station slot.
+      const stationXs = J.slots
+        .map((sl, i) => (sl.type === 'station' ? X(i) : null))
+        .filter((x) => x !== null);
+      if (stationXs.length > 1) {
+        out.push(`<line x1="${stationXs[0]}" y1="${yMain}" x2="${stationXs[stationXs.length - 1]}" y2="${yMain}" class="jy-main"/>`);
+      }
+
+      // Participant line: reached stations on the main line, deviations and
+      // terminals in the branch lane. Long main-line jumps (skipped stations)
+      // dip through the branch lane so hollow stations aren't implied.
+      const pts = [];
+      J.slots.forEach((sl, i) => {
+        const x = X(i);
+        if (sl.type === 'station' && sl.station.reached) pts.push({ x, y: yMain });
+        else if (sl.type === 'dev' || sl.type === 'terminal') pts.push({ x, y: yDev });
+      });
+      if (pts.length > 1) {
+        let d = `M ${pts[0].x} ${pts[0].y}`;
+        for (let i = 1; i < pts.length; i++) {
+          const a = pts[i - 1], b = pts[i];
+          if (a.y === b.y && a.y === yMain && b.x - a.x > SP * 1.5) {
+            d += ` C ${a.x + 44} ${yDev} ${b.x - 44} ${yDev} ${b.x} ${b.y}`;
+          } else if (a.y === b.y) {
+            d += ` L ${b.x} ${b.y}`;
+          } else {
+            const mx = (a.x + b.x) / 2;
+            d += ` C ${mx} ${a.y} ${mx} ${b.y} ${b.x} ${b.y}`;
+          }
+        }
+        out.push(`<path d="${d}" class="jy-journey"/>`);
+      }
+
+      // Nodes
+      J.slots.forEach((sl, i) => {
+        const x = X(i);
+        const selCls = sel === i ? ' selected' : '';
+        if (sl.type === 'station') {
+          const st = sl.station;
+          out.push(`<circle data-node="${i}" cx="${x}" cy="${yMain}" r="11" class="jy-station ${st.kind}${st.reached ? ' reached' : ''}${selCls}"/>`);
+          if (st.kind === 'step') {
+            out.push(`<text x="${x}" y="${yMain + 4}" class="jy-num" text-anchor="middle">${st.label}</text>`);
+          } else {
+            out.push(`<text x="${x}" y="${yMain - 20}" class="jy-cap" text-anchor="middle">${st.kind === 'start' ? 'START' : '🏁 END'}</text>`);
+          }
+          const dy = (i % 2 === 0) ? 32 : 46;
+          out.push(`<text x="${x}" y="${yMain + dy}" class="jy-screen" text-anchor="middle">${esc(this._shortScreen(st.screenId))}</text>`);
+        } else if (sl.type === 'dev') {
+          out.push(`<circle data-node="${i}" cx="${x}" cy="${yDev}" r="7" class="jy-dev ${sl.dev.kind}${selCls}"/>`);
+          if (sl.dev.kind === 'screen') {
+            out.push(`<text x="${x}" y="${yDev + 22}" class="jy-screen" text-anchor="middle">${esc(this._shortScreen(sl.dev.screenId))}</text>`);
+          }
+        } else {
+          const k = sl.outcome.kind;
+          const cls = k === 'dropped' ? 'drop' : (k === 'in_progress' ? 'progress' : 'done');
+          out.push(`<circle data-node="${i}" cx="${x}" cy="${yDev}" r="10" class="jy-terminal ${cls}${selCls}"/>`);
+          const glyph = k === 'dropped' ? '✕' : (k === 'in_progress' ? '…' : '✓');
+          out.push(`<text x="${x}" y="${yDev + 4}" class="jy-term-glyph" text-anchor="middle">${glyph}</text>`);
+          out.push(`<text x="${x}" y="${yDev + 26}" class="jy-screen" text-anchor="middle">${k === 'dropped' ? 'dropped' : (k === 'in_progress' ? 'in progress' : 'completed')}</text>`);
+        }
+      });
+
+      return `<svg class="jy-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${out.join('')}</svg>`;
     },
 
-    timelineDotClass(ev) {
-      if (ev.event_type !== 'click') return 'transition';
-      if (ev.is_on_path) return 'on-path';
-      if (ev.is_mis_click) return 'mis-click';
-      return 'transition';
+    // Popout payload for a clicked node.
+    _journeyNodeDetail(idx) {
+      const sl = this.journey.slots[idx];
+      if (!sl) return null;
+      if (sl.type === 'station') {
+        const st = sl.station;
+        const rows = [['Screen', st.screenId]];
+        if (st.kind === 'step') {
+          rows.push(['Recorded click', st.elementText || '(no text)']);
+          if (st.selector) rows.push(['Selector', st.selector]);
+          rows.push(['Participant', st.reached ? `matched it at ${this.fmtMs(st.ms)}` : 'never matched this step']);
+        } else if (st.kind === 'start') {
+          rows.push(['Session started', 'here']);
+        } else {
+          rows.push(['Reached', st.reached ? 'yes — session end' : 'no']);
+        }
+        return {
+          nodeId: idx,
+          title: st.kind === 'step' ? `Step ${st.label} — recorded path`
+               : (st.kind === 'start' ? 'Session start' : 'End screen'),
+          shot: st.shot, rows,
+        };
+      }
+      if (sl.type === 'dev') {
+        const d = sl.dev;
+        const after = this.journey.stations[d.afterStation];
+        const afterLabel = after
+          ? (after.kind === 'step' ? `step ${after.label} (${after.screenId})` : `${after.kind} (${after.screenId})`)
+          : '—';
+        const rows = d.kind === 'click'
+          ? [
+              ['Clicked', d.text || '(no visible text)'],
+              ['Selector', d.selector || '—'],
+              ['Element', d.tag ? `<${d.tag.toLowerCase()}>` : '—'],
+              ['On screen', d.screenId],
+              ['When', this.fmtMs(d.ms)],
+              ['Last on-path point', afterLabel],
+            ]
+          : [
+              ['Went to', d.screenId],
+              ['When', this.fmtMs(d.ms)],
+              ['Last on-path point', afterLabel],
+            ];
+        return {
+          nodeId: idx,
+          title: d.kind === 'click' ? 'Off-path click' : 'Off-route page',
+          shot: null, rows,
+        };
+      }
+      // terminal
+      const s = this.drawerSession;
+      return {
+        nodeId: idx,
+        title: sl.outcome.label,
+        shot: null,
+        rows: [
+          ['Status', s?.status ?? '—'],
+          ['Duration', this.fmtDuration(s?.duration_ms)],
+          ['Steps matched', `${s?.completed_steps ?? 0} / ${s?.total_steps ?? '—'}`],
+        ],
+      };
     },
 
-    timelinePct(ev) {
-      const dur = this.drawerSession?.duration_ms;
-      if (!dur) return 0;
-      return Math.min(99, Math.round(((ev.ms_since_session_start || 0) / dur) * 100));
+    journeyClick(e) {
+      const n = e.target.closest('[data-node]');
+      if (!n) { this.journeyPopout = null; return; }
+      const idx = Number(n.getAttribute('data-node'));
+      this.journeyPopout = this.journeyPopout?.nodeId === idx ? null : this._journeyNodeDetail(idx);
     },
 
-    showTooltip(mouseEvent, ev) {
+    journeyHover(e) {
+      const n = e.target.closest('[data-node]');
       const tip = document.getElementById('timelineTooltip');
-      if (!tip) return;
-      const label = ev.element_selector
-        ? `${ev.element_selector}  •  ${this.fmtMs(ev.ms_since_session_start)}`
-        : `${ev.event_type}  •  ${this.fmtMs(ev.ms_since_session_start)}`;
-      tip.textContent = label;
+      if (!n || !tip) return;
+      const sl = this.journey.slots[Number(n.getAttribute('data-node'))];
+      if (!sl) return;
+      let label;
+      if (sl.type === 'station') {
+        const st = sl.station;
+        label = st.kind === 'step'
+          ? `Step ${st.label} · ${st.reached ? 'reached ' + this.fmtMs(st.ms) : 'not reached'}`
+          : (st.kind === 'start' ? 'Session start' : `End screen · ${st.reached ? 'reached' : 'not reached'}`);
+      } else if (sl.type === 'dev') {
+        label = sl.dev.kind === 'click'
+          ? `⚠ clicked “${(sl.dev.text || sl.dev.selector || '?').slice(0, 40)}” · ${this.fmtMs(sl.dev.ms)}`
+          : `⚠ went to ${sl.dev.screenId} · ${this.fmtMs(sl.dev.ms)}`;
+      } else {
+        label = sl.outcome.label;
+      }
+      tip.textContent = label + '  ·  click for details';
       tip.style.display = 'block';
-      tip.style.left = mouseEvent.clientX + 'px';
-      tip.style.top = (mouseEvent.clientY - 36) + 'px';
+      tip.style.left = e.clientX + 'px';
+      tip.style.top = (e.clientY - 36) + 'px';
     },
 
     hideTooltip() {
