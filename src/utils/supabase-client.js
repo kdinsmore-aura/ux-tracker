@@ -29,7 +29,20 @@ export function initSupabaseClient(config) {
   }
   if (_client) return _client;
   _debug  = Boolean(config.debug);
-  _client = createClient(config.supabaseUrl, config.supabaseKey);
+  // The tracker is an embedded, anonymous script — it must NEVER adopt a
+  // Supabase Auth session persisted by another app on the same origin.
+  // supabase-js shares its localStorage session (sb-<ref>-auth-token) across
+  // every client on an origin, so when a prototype page shares an origin with
+  // the researcher tools (e.g. the GitHub Pages sample), a signed-in
+  // researcher's JWT would silently replace the anon role on every storage
+  // upload — and the bucket's anon-scoped RLS policies would reject them.
+  _client = createClient(config.supabaseUrl, config.supabaseKey, {
+    auth: {
+      persistSession:   false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
   return _client;
 }
 

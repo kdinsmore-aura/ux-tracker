@@ -66,3 +66,26 @@ CREATE POLICY "screenshots_anon_update"
   TO anon
   USING (bucket_id = 'ux-tracker-screenshots')
   WITH CHECK (bucket_id = 'ux-tracker-screenshots');
+
+-- Authenticated mirror of the three policies above — defense in depth.
+-- supabase-js shares its persisted auth session across every client on an
+-- origin; when a prototype page shares an origin with the researcher tools
+-- (the GitHub Pages sample does), an old cached tracker bundle could upload
+-- with the researcher's JWT instead of anon. The current bundle opts out of
+-- session persistence, but a signed-in researcher is a legitimate uploader
+-- anyway, so both roles are granted.
+CREATE POLICY "screenshots_auth_select"
+  ON storage.objects FOR SELECT
+  TO authenticated
+  USING (bucket_id = 'ux-tracker-screenshots');
+
+CREATE POLICY "screenshots_auth_insert"
+  ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (bucket_id = 'ux-tracker-screenshots');
+
+CREATE POLICY "screenshots_auth_update"
+  ON storage.objects FOR UPDATE
+  TO authenticated
+  USING (bucket_id = 'ux-tracker-screenshots')
+  WITH CHECK (bucket_id = 'ux-tracker-screenshots');
