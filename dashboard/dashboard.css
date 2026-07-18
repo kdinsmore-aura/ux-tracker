@@ -779,7 +779,8 @@ label {
   position: fixed;
   top: 0;
   right: 0;
-  width: 780px;
+  width: 60vw;
+  min-width: 420px;
   max-width: 95vw;
   height: 100vh;
   background: var(--surface);
@@ -794,6 +795,17 @@ label {
 }
 
 .drawer.open { transform: translateX(0); }
+
+/* Drag handle on the drawer's left edge */
+.drawer-resize {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 7px;
+  cursor: ew-resize;
+  z-index: 5;
+}
+.drawer-resize:hover,
+.drawer-resize:active { background: rgba(37, 99, 235, .25); }
 
 .drawer-header {
   padding: 18px 22px;
@@ -840,6 +852,13 @@ label {
 
 /* ── Session journey (subway map) ───────────────────────────────────────────── */
 
+.journey-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
 .journey-summary {
   font-size: 12px;
   color: var(--text-2);
@@ -854,7 +873,15 @@ label {
   padding: 6px 0;
 }
 
+.journey-scroll.vert {
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 62vh;
+  padding: 0 6px;
+}
+
 .journey-inner { width: max-content; min-width: 100%; }
+.journey-scroll.vert .journey-inner { width: auto; }
 .jy-svg { display: block; }
 
 .jy-svg [data-node] { cursor: pointer; }

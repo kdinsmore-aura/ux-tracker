@@ -657,7 +657,10 @@
   <!-- SESSION DETAIL DRAWER                                                   -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <div class="drawer-overlay" :class="{ open: drawerOpen }" @click="closeDrawer()"></div>
-  <div class="drawer" :class="{ open: drawerOpen }">
+  <div class="drawer" :class="{ open: drawerOpen }"
+       :style="drawerW ? 'width:' + drawerW + 'px' : ''">
+    <div class="drawer-resize" @mousedown="startDrawerResize($event)"
+         title="Drag to resize"></div>
     <div class="drawer-header">
       <span class="drawer-title"
             x-text="drawerSession ? 'Session — ' + (drawerSession.participant_label || drawerSession.participant_id?.slice(0,8)) : 'Session Detail'">
@@ -707,7 +710,12 @@
 
           <!-- Session journey — subway map -->
           <div class="drawer-section">
-            <div class="drawer-section-title">Session Journey</div>
+            <div class="journey-head">
+              <div class="drawer-section-title" style="margin-bottom:0">Session Journey</div>
+              <button class="btn btn-secondary btn-sm" x-show="journey.slots.length > 0"
+                      @click="toggleJourneyVert()"
+                      x-text="journeyVert ? '⇆ Horizontal' : '⇅ Vertical'"></button>
+            </div>
             <div class="journey-summary" x-show="journey.slots.length > 0"
                  x-text="journey.summary"></div>
 
@@ -715,7 +723,8 @@
               No journey data for this session.
             </div>
 
-            <div class="journey-scroll" x-show="journey.slots.length > 0"
+            <div class="journey-scroll" :class="{ vert: journeyVert }"
+                 x-show="journey.slots.length > 0"
                  @click="journeyClick($event)"
                  @mouseover="journeyHover($event)"
                  @mouseout="hideTooltip()">

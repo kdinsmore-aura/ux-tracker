@@ -134,6 +134,8 @@ function dashboardApp() {
     drawerSession: null,
     drawerEvents: [],
     journeyPopout: null,   // detail card for the clicked journey node
+    journeyVert: false,    // subway map orientation (persisted)
+    drawerW: null,         // researcher-dragged drawer width in px (persisted)
 
     // ── Chart instances ────────────────────────────────────────────────────
     _taskChart: null,
@@ -146,6 +148,13 @@ function dashboardApp() {
 
     async init() {
       this.gateChecking = true;
+
+      // Researcher display preferences
+      try {
+        const w = parseInt(localStorage.getItem('uxt_dash_drawer_w'), 10);
+        if (Number.isFinite(w) && w >= 420) this.drawerW = w;
+        this.journeyVert = localStorage.getItem('uxt_dash_journey_vert') === '1';
+      } catch {}
 
       const params = new URLSearchParams(window.location.search);
       const urlStudyId = params.get('study');
@@ -1105,14 +1114,28 @@ function dashboardApp() {
         outcome = { kind: 'in_progress', label: 'Still in progress' };
       }
 
-      // Slots: station, then its trailing deviations, repeating. A terminal
-      // marker is appended after the participant's final position unless the
-      // journey already ends at a reached end station.
+      // Slots: station, then its trailing deviations. When a deviation run
+      // bypasses recorded stations (the participant never rejoined before
+      // them), those hollow stations are distributed evenly BETWEEN the
+      // off-path points instead of stacked after them — the printed line and
+      // the participant's branch progress in parallel, with no dead gap
+      // before the re-entry point.
       const slots = [];
-      stations.forEach((st, i) => {
-        slots.push({ type: 'station', station: st, si: i });
-        devAfter[i].forEach((d) => slots.push({ type: 'dev', dev: d, si: i }));
-      });
+      let i = 0;
+      while (i < stations.length) {
+        slots.push({ type: 'station', station: stations[i], si: i });
+        const devs = devAfter[i].map((d) => ({ type: 'dev', dev: d, si: i }));
+        if (devs.length === 0) { i++; continue; }
+
+        const bypassed = [];
+        let j = i + 1;
+        while (j < stations.length && !stations[j].reached) {
+          bypassed.push({ type: 'station', station: stations[j], si: j });
+          j++;
+        }
+        slots.push(...this._interleaveRun(devs, bypassed));
+        i = j;
+      }
 
       const journeyEndsAtEnd = endStation && endStation.reached;
       if (!journeyEndsAtEnd) {
@@ -1134,24 +1157,51 @@ function dashboardApp() {
       return { slots, stations, outcome, devCount, summary: parts.join(' · ') };
     },
 
-    // SVG renderer. Every interactive node carries data-node="<slot index>";
-    // clicks and hovers are delegated from the container.
+    // Proportional merge: spread B bypassed stations evenly among D off-path
+    // points so neither list clumps at one end of the shared span.
+    _interleaveRun(devs, bypassed) {
+      const out = [];
+      let di = 0, si = 0;
+      const D = devs.length, B = bypassed.length;
+      while (di < D || si < B) {
+        if (di < D && (si >= B || (di + 1) / (D + 1) <= (si + 1) / (B + 1))) {
+          out.push(devs[di++]);
+        } else {
+          out.push(bypassed[si++]);
+        }
+      }
+      return out;
+    },
+
+    // SVG renderer, orientation-aware. Positions are computed along the line
+    // axis (A) and a cross-lane offset (main line vs branch lane), then mapped
+    // to x/y for the chosen orientation. Every interactive node carries
+    // data-node="<slot index>"; clicks and hovers are delegated.
     get journeySvg() {
       const J = this.journey;
       if (!J.slots.length) return '';
-      const SP = 88, M = 70, yMain = 58, yDev = 122, H = 168;
-      const X = (i) => M + i * SP;
-      const W = M * 2 + (J.slots.length - 1) * SP;
+      const vert = this.journeyVert;
+      const SP = vert ? 64 : 88;
+      const M  = vert ? 46 : 70;
+      const mainL = vert ? 200 : 58;    // cross offset of the printed line
+      const devL  = vert ? 264 : 122;   // cross offset of the branch lane
+      const A = (i) => M + i * SP;
+      const P = (a, l) => (vert ? { x: l, y: a } : { x: a, y: l });
+      const span = M * 2 + (J.slots.length - 1) * SP;
+      const W = vert ? 430 : span;
+      const H = vert ? span : 168;
       const sel = this.journeyPopout?.nodeId;
       const esc = (v) => this._escXml(v);
       const out = [];
 
       // Printed line: straight through every station slot.
-      const stationXs = J.slots
-        .map((sl, i) => (sl.type === 'station' ? X(i) : null))
-        .filter((x) => x !== null);
-      if (stationXs.length > 1) {
-        out.push(`<line x1="${stationXs[0]}" y1="${yMain}" x2="${stationXs[stationXs.length - 1]}" y2="${yMain}" class="jy-main"/>`);
+      const stationAs = J.slots
+        .map((sl, i) => (sl.type === 'station' ? A(i) : null))
+        .filter((a) => a !== null);
+      if (stationAs.length > 1) {
+        const p1 = P(stationAs[0], mainL);
+        const p2 = P(stationAs[stationAs.length - 1], mainL);
+        out.push(`<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" class="jy-main"/>`);
       }
 
       // Participant line: reached stations on the main line, deviations and
@@ -1159,56 +1209,96 @@ function dashboardApp() {
       // dip through the branch lane so hollow stations aren't implied.
       const pts = [];
       J.slots.forEach((sl, i) => {
-        const x = X(i);
-        if (sl.type === 'station' && sl.station.reached) pts.push({ x, y: yMain });
-        else if (sl.type === 'dev' || sl.type === 'terminal') pts.push({ x, y: yDev });
+        if (sl.type === 'station' && sl.station.reached) pts.push({ a: A(i), lane: mainL });
+        else if (sl.type === 'dev' || sl.type === 'terminal') pts.push({ a: A(i), lane: devL });
       });
       if (pts.length > 1) {
-        let d = `M ${pts[0].x} ${pts[0].y}`;
+        const m0 = P(pts[0].a, pts[0].lane);
+        let d = `M ${m0.x} ${m0.y}`;
         for (let i = 1; i < pts.length; i++) {
           const a = pts[i - 1], b = pts[i];
-          if (a.y === b.y && a.y === yMain && b.x - a.x > SP * 1.5) {
-            d += ` C ${a.x + 44} ${yDev} ${b.x - 44} ${yDev} ${b.x} ${b.y}`;
-          } else if (a.y === b.y) {
-            d += ` L ${b.x} ${b.y}`;
+          const B = P(b.a, b.lane);
+          if (a.lane === b.lane && a.lane === mainL && b.a - a.a > SP * 1.5) {
+            const c1 = P(a.a + 40, devL), c2 = P(b.a - 40, devL);
+            d += ` C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${B.x} ${B.y}`;
+          } else if (a.lane === b.lane) {
+            d += ` L ${B.x} ${B.y}`;
           } else {
-            const mx = (a.x + b.x) / 2;
-            d += ` C ${mx} ${a.y} ${mx} ${b.y} ${b.x} ${b.y}`;
+            const mid = (a.a + b.a) / 2;
+            const c1 = P(mid, a.lane), c2 = P(mid, b.lane);
+            d += ` C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${B.x} ${B.y}`;
           }
         }
         out.push(`<path d="${d}" class="jy-journey"/>`);
       }
 
-      // Nodes
+      // Nodes + labels
       J.slots.forEach((sl, i) => {
-        const x = X(i);
+        const a = A(i);
         const selCls = sel === i ? ' selected' : '';
         if (sl.type === 'station') {
           const st = sl.station;
-          out.push(`<circle data-node="${i}" cx="${x}" cy="${yMain}" r="11" class="jy-station ${st.kind}${st.reached ? ' reached' : ''}${selCls}"/>`);
+          const c = P(a, mainL);
+          out.push(`<circle data-node="${i}" cx="${c.x}" cy="${c.y}" r="11" class="jy-station ${st.kind}${st.reached ? ' reached' : ''}${selCls}"/>`);
           if (st.kind === 'step') {
-            out.push(`<text x="${x}" y="${yMain + 4}" class="jy-num" text-anchor="middle">${st.label}</text>`);
+            out.push(`<text x="${c.x}" y="${c.y + 4}" class="jy-num" text-anchor="middle">${st.label}</text>`);
           } else {
-            out.push(`<text x="${x}" y="${yMain - 20}" class="jy-cap" text-anchor="middle">${st.kind === 'start' ? 'START' : '🏁 END'}</text>`);
+            const cap = st.kind === 'start' ? 'START' : '🏁 END';
+            out.push(vert
+              ? `<text x="${mainL - 20}" y="${a - 4}" class="jy-cap" text-anchor="end">${cap}</text>`
+              : `<text x="${c.x}" y="${mainL - 20}" class="jy-cap" text-anchor="middle">${cap}</text>`);
           }
-          const dy = (i % 2 === 0) ? 32 : 46;
-          out.push(`<text x="${x}" y="${yMain + dy}" class="jy-screen" text-anchor="middle">${esc(this._shortScreen(st.screenId))}</text>`);
+          const scr = esc(this._shortScreen(st.screenId));
+          out.push(vert
+            ? `<text x="${mainL - 20}" y="${a + (st.kind === 'step' ? 4 : 12)}" class="jy-screen" text-anchor="end">${scr}</text>`
+            : `<text x="${c.x}" y="${mainL + (i % 2 === 0 ? 32 : 46)}" class="jy-screen" text-anchor="middle">${scr}</text>`);
         } else if (sl.type === 'dev') {
-          out.push(`<circle data-node="${i}" cx="${x}" cy="${yDev}" r="7" class="jy-dev ${sl.dev.kind}${selCls}"/>`);
+          const c = P(a, devL);
+          out.push(`<circle data-node="${i}" cx="${c.x}" cy="${c.y}" r="7" class="jy-dev ${sl.dev.kind}${selCls}"/>`);
           if (sl.dev.kind === 'screen') {
-            out.push(`<text x="${x}" y="${yDev + 22}" class="jy-screen" text-anchor="middle">${esc(this._shortScreen(sl.dev.screenId))}</text>`);
+            const scr = esc(this._shortScreen(sl.dev.screenId));
+            out.push(vert
+              ? `<text x="${devL + 14}" y="${a + 4}" class="jy-screen" text-anchor="start">${scr}</text>`
+              : `<text x="${c.x}" y="${devL + 22}" class="jy-screen" text-anchor="middle">${scr}</text>`);
           }
         } else {
           const k = sl.outcome.kind;
           const cls = k === 'dropped' ? 'drop' : (k === 'in_progress' ? 'progress' : 'done');
-          out.push(`<circle data-node="${i}" cx="${x}" cy="${yDev}" r="10" class="jy-terminal ${cls}${selCls}"/>`);
+          const c = P(a, devL);
+          out.push(`<circle data-node="${i}" cx="${c.x}" cy="${c.y}" r="10" class="jy-terminal ${cls}${selCls}"/>`);
           const glyph = k === 'dropped' ? '✕' : (k === 'in_progress' ? '…' : '✓');
-          out.push(`<text x="${x}" y="${yDev + 4}" class="jy-term-glyph" text-anchor="middle">${glyph}</text>`);
-          out.push(`<text x="${x}" y="${yDev + 26}" class="jy-screen" text-anchor="middle">${k === 'dropped' ? 'dropped' : (k === 'in_progress' ? 'in progress' : 'completed')}</text>`);
+          out.push(`<text x="${c.x}" y="${c.y + 4}" class="jy-term-glyph" text-anchor="middle">${glyph}</text>`);
+          const lbl = k === 'dropped' ? 'dropped' : (k === 'in_progress' ? 'in progress' : 'completed');
+          out.push(vert
+            ? `<text x="${devL + 16}" y="${a + 4}" class="jy-screen" text-anchor="start">${lbl}</text>`
+            : `<text x="${c.x}" y="${devL + 26}" class="jy-screen" text-anchor="middle">${lbl}</text>`);
         }
       });
 
       return `<svg class="jy-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${out.join('')}</svg>`;
+    },
+
+    toggleJourneyVert() {
+      this.journeyVert = !this.journeyVert;
+      try { localStorage.setItem('uxt_dash_journey_vert', this.journeyVert ? '1' : '0'); } catch {}
+    },
+
+    // Drag the drawer's left edge to resize; the width persists.
+    startDrawerResize(e) {
+      e.preventDefault();
+      const move = (ev) => {
+        const w = Math.min(window.innerWidth * 0.95, Math.max(420, window.innerWidth - ev.clientX));
+        this.drawerW = Math.round(w);
+      };
+      const up = () => {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        document.body.style.userSelect = '';
+        try { localStorage.setItem('uxt_dash_drawer_w', String(this.drawerW)); } catch {}
+      };
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
     },
 
     // Popout payload for a clicked node.
@@ -1302,7 +1392,9 @@ function dashboardApp() {
       }
       tip.textContent = label + '  ·  click for details';
       tip.style.display = 'block';
-      tip.style.left = e.clientX + 'px';
+      // Clamp so the (center-anchored) tooltip never clips at the viewport edges.
+      const half = Math.min(140, tip.offsetWidth / 2 || 140);
+      tip.style.left = Math.min(window.innerWidth - half - 8, Math.max(half + 8, e.clientX)) + 'px';
       tip.style.top = (e.clientY - 36) + 'px';
     },
 
