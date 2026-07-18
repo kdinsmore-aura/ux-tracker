@@ -142,6 +142,7 @@ function dashboardApp() {
     flowSel: [],           // selected session ids
     flowPopout: null,      // detail card for the clicked aggregate node
     pathsTab: 'flow',      // 'flow' (funnel) | 'journeys' — persisted
+    flowVert: true,        // aggregate map orientation — vertical by default
 
     // ── Chart instances ────────────────────────────────────────────────────
     _taskChart: null,
@@ -161,6 +162,8 @@ function dashboardApp() {
         if (Number.isFinite(w) && w >= 420) this.drawerW = w;
         this.journeyVert = localStorage.getItem('uxt_dash_journey_vert') === '1';
         if (localStorage.getItem('uxt_dash_paths_tab') === 'journeys') this.pathsTab = 'journeys';
+        const fv = localStorage.getItem('uxt_dash_flow_vert');
+        if (fv !== null) this.flowVert = fv === '1';
       } catch {}
 
       const params = new URLSearchParams(window.location.search);
@@ -1309,6 +1312,11 @@ function dashboardApp() {
       if (tab === 'journeys' && !this.flow.loaded) this.loadFlowJourneys();
     },
 
+    toggleFlowVert() {
+      this.flowVert = !this.flowVert;
+      try { localStorage.setItem('uxt_dash_flow_vert', this.flowVert ? '1' : '0'); } catch {}
+    },
+
     get flowSessions() { return this.sessions.list || []; },
 
     async loadFlowJourneys() {
@@ -1448,72 +1456,104 @@ function dashboardApp() {
     get flowSvg() {
       const F = this.flowAgg;
       if (!F.slots.length) return '';
-      const SP = 92, M = 70, yMain = 64, yDev = 138, H = 196;
-      const X = (i) => M + i * SP;
-      const W = M * 2 + (F.slots.length - 1) * SP;
+      const vert = this.flowVert;
+      const SP = vert ? 66 : 92;
+      const M  = vert ? 48 : 70;
+      const mainL = vert ? 200 : 64;    // cross offset of the printed line
+      const devL  = vert ? 268 : 138;   // cross offset of the branch lane
+      const A = (i) => M + i * SP;
+      const P = (a, l) => (vert ? { x: l, y: a } : { x: a, y: l });
+      const span = M * 2 + (F.slots.length - 1) * SP;
+      const W = vert ? 440 : span;
+      const H = vert ? span : 196;
       const sel = this.flowPopout?.nodeId;
       const esc = (v) => this._escXml(v);
       const out = [];
 
       const stationSlots = F.slots.map((sl, i) => (sl.type === 'station' ? i : null)).filter((v) => v !== null);
       if (stationSlots.length > 1) {
-        out.push(`<line x1="${X(stationSlots[0])}" y1="${yMain}" x2="${X(stationSlots[stationSlots.length - 1])}" y2="${yMain}" class="jy-main"/>`);
+        const p1 = P(A(stationSlots[0]), mainL);
+        const p2 = P(A(stationSlots[stationSlots.length - 1]), mainL);
+        out.push(`<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" class="jy-main"/>`);
       }
 
       // Rides (behind nodes). Straight main-line segments dip through the
-      // branch lane only when they skip an intermediate STATION slot.
+      // branch lane only when they skip an intermediate STATION slot. The
+      // per-participant jitter shifts the cross-lane offset, so overlapping
+      // rides stay distinguishable in either orientation.
       F.rides.forEach((ride, ri) => {
         if (ride.pts.length < 2) return;
         const jitter = ((ri % 5) - 2) * 2.4;
-        const yOf = (p) => (p.lane === 'main' ? yMain + jitter : yDev);
-        let d = `M ${X(ride.pts[0].slot)} ${yOf(ride.pts[0])}`;
+        const laneOf = (p) => (p.lane === 'main' ? mainL + jitter : devL);
+        const m0 = P(A(ride.pts[0].slot), laneOf(ride.pts[0]));
+        let d = `M ${m0.x} ${m0.y}`;
         for (let i = 1; i < ride.pts.length; i++) {
           const a = ride.pts[i - 1], b = ride.pts[i];
-          const ax = X(a.slot), bx = X(b.slot);
-          const ay = yOf(a), by = yOf(b);
+          const aa = A(a.slot), ba = A(b.slot);
+          const al = laneOf(a), bl = laneOf(b);
+          const B = P(ba, bl);
           const skipsStation = a.lane === 'main' && b.lane === 'main' &&
             F.slots.some((sl, si) => sl.type === 'station' &&
               si > Math.min(a.slot, b.slot) && si < Math.max(a.slot, b.slot));
           if (skipsStation) {
-            d += ` C ${ax + 40} ${yDev} ${bx - 40} ${yDev} ${bx} ${by}`;
-          } else if (ay === by) {
-            d += ` L ${bx} ${by}`;
+            const c1 = P(aa + 40, devL), c2 = P(ba - 40, devL);
+            d += ` C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${B.x} ${B.y}`;
+          } else if (al === bl) {
+            d += ` L ${B.x} ${B.y}`;
           } else {
-            const mx = (ax + bx) / 2;
-            d += ` C ${mx} ${ay} ${mx} ${by} ${bx} ${by}`;
+            const mid = (aa + ba) / 2;
+            const c1 = P(mid, al), c2 = P(mid, bl);
+            d += ` C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${B.x} ${B.y}`;
           }
         }
         out.push(`<path d="${d}" class="jy-ride" style="stroke:${ride.color}"/>`);
       });
 
-      // Nodes
+      // Nodes + labels
       F.slots.forEach((sl, i) => {
-        const x = X(i);
+        const a = A(i);
         const selCls = sel === i ? ' selected' : '';
         if (sl.type === 'station') {
           const st = sl.station;
           const n = st.reachedBy.length;
-          out.push(`<circle data-node="${i}" cx="${x}" cy="${yMain}" r="11" class="jy-station ${st.kind}${n > 0 ? ' reached' : ''}${selCls}"/>`);
+          const c = P(a, mainL);
+          out.push(`<circle data-node="${i}" cx="${c.x}" cy="${c.y}" r="11" class="jy-station ${st.kind}${n > 0 ? ' reached' : ''}${selCls}"/>`);
           if (st.kind === 'step') {
-            out.push(`<text x="${x}" y="${yMain + 4}" class="jy-num" text-anchor="middle">${st.label}</text>`);
+            out.push(`<text x="${c.x}" y="${c.y + 4}" class="jy-num" text-anchor="middle">${st.label}</text>`);
           } else {
-            out.push(`<text x="${x}" y="${yMain - 20}" class="jy-cap" text-anchor="middle">${st.kind === 'start' ? 'START' : '🏁 END'}</text>`);
+            const cap = st.kind === 'start' ? 'START' : '🏁 END';
+            out.push(vert
+              ? `<text x="${mainL - 20}" y="${a - 4}" class="jy-cap" text-anchor="end">${cap}</text>`
+              : `<text x="${c.x}" y="${mainL - 20}" class="jy-cap" text-anchor="middle">${cap}</text>`);
           }
-          out.push(`<text x="${x}" y="${yMain + 32}" class="jy-screen" text-anchor="middle">${n}/${F.total}</text>`);
+          const frac = `${n}/${F.total}`;
+          out.push(vert
+            ? `<text x="${mainL - 20}" y="${a + (st.kind === 'step' ? 4 : 12)}" class="jy-screen" text-anchor="end">${frac}</text>`
+            : `<text x="${c.x}" y="${mainL + 32}" class="jy-screen" text-anchor="middle">${frac}</text>`);
         } else if (sl.type === 'cluster') {
           const c = sl.cluster;
           const r = Math.min(13, 6.5 + c.hits.length * 1.4);
-          out.push(`<circle data-node="${i}" cx="${x}" cy="${yDev}" r="${r}" class="jy-dev ${c.kind}${selCls}"/>`);
+          const p = P(a, devL);
+          out.push(`<circle data-node="${i}" cx="${p.x}" cy="${p.y}" r="${r}" class="jy-dev ${c.kind}${selCls}"/>`);
           if (c.hits.length > 1) {
-            out.push(`<text x="${x}" y="${yDev + 3.5}" class="jy-cl-count" text-anchor="middle">${c.hits.length}</text>`);
+            out.push(`<text x="${p.x}" y="${p.y + 3.5}" class="jy-cl-count" text-anchor="middle">${c.hits.length}</text>`);
+          }
+          if (vert) {
+            const lbl = c.kind === 'click' ? (c.text || c.selector || '') : c.screenId;
+            out.push(`<text x="${devL + 18}" y="${a + 4}" class="jy-screen" text-anchor="start">${esc(this._shortScreen(lbl))}</text>`);
           }
         } else {
           const t = sl.term;
           const k = t.outcome.kind;
           const cls = k === 'dropped' ? 'drop' : (k === 'in_progress' ? 'progress' : 'done');
-          out.push(`<circle data-node="${i}" cx="${x}" cy="${yDev}" r="10" class="jy-terminal ${cls}${selCls}"/>`);
+          const p = P(a, devL);
+          out.push(`<circle data-node="${i}" cx="${p.x}" cy="${p.y}" r="10" class="jy-terminal ${cls}${selCls}"/>`);
           const glyph = k === 'dropped' ? '✕' : (k === 'in_progress' ? '…' : '✓');
-          out.push(`<text x="${x}" y="${yDev + 4}" class="jy-term-glyph" text-anchor="middle">${glyph}${t.hits.length > 1 ? '×' + t.hits.length : ''}</text>`);
+          out.push(`<text x="${p.x}" y="${p.y + 4}" class="jy-term-glyph" text-anchor="middle">${glyph}${t.hits.length > 1 ? '×' + t.hits.length : ''}</text>`);
+          if (vert) {
+            const lbl = k === 'dropped' ? 'dropped' : (k === 'in_progress' ? 'in progress' : 'completed');
+            out.push(`<text x="${devL + 18}" y="${a + 4}" class="jy-screen" text-anchor="start">${lbl}</text>`);
+          }
         }
       });
 

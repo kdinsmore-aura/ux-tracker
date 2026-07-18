@@ -557,6 +557,8 @@
                 <div class="journey-head" x-show="flow.loaded && flowSessions.length > 0">
                   <div></div>
                   <div class="flow-controls">
+                    <button class="btn btn-secondary btn-sm" @click="toggleFlowVert()"
+                            x-text="flowVert ? '⇆ Horizontal' : '⇅ Vertical'"></button>
                     <button class="btn btn-secondary btn-sm" @click="flowSelAll()">All</button>
                     <button class="btn btn-secondary btn-sm" @click="flowSelNone()">None</button>
                   </div>
@@ -600,7 +602,8 @@
                       Select at least one participant to draw their journey.
                     </div>
 
-                    <div class="journey-scroll" x-show="flowSel.length > 0"
+                    <div class="journey-scroll" :class="{ vert: flowVert }"
+                         x-show="flowSel.length > 0"
                          @click="flowClick($event)"
                          @mouseover="flowHover($event)"
                          @mouseout="hideTooltip()">
