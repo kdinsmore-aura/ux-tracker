@@ -1220,13 +1220,15 @@ label {
   min-height: 200px;
 }
 
+/* The element box MUST match the drawn image exactly — any max-height +
+   object-fit letterboxing desyncs the click-coordinate projection. */
 .heatmap-screenshot {
   display: block;
   width: 100%;
   height: auto;
-  max-height: 600px;
-  object-fit: contain;
 }
+
+.heatmap-shotwrap { position: relative; cursor: crosshair; }
 
 .heatmap-canvas-wrap {
   position: absolute;
@@ -1234,6 +1236,69 @@ label {
   width: 100%; height: 100%;
   pointer-events: none;
 }
+
+.heatmap-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.heatmap-mode-bar .toggle-btn { padding: 7px 14px; font-size: 12px; }
+.heatmap-mode-hint { font-size: 12px; color: var(--text-3); }
+
+.screen-thumb-sub {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.screen-thumb-noimg {
+  width: 100%;
+  aspect-ratio: 16/9;
+  border-radius: 4px;
+  border: 1px dashed var(--border-2);
+  background: var(--subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.heatmap-stats {
+  font-size: 12.5px;
+  color: var(--text-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.hm-mis { color: #B91C1C; font-weight: 600; }
+.hm-expected { color: var(--text-3); font-style: italic; }
+
+.hm-offnote {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.hm-offnote-title { font-weight: 600; color: #92400E; margin-bottom: 6px; }
+.hm-offnote-row { display: flex; gap: 8px; color: var(--text-2); }
+.hm-offnote-row code { font-size: 11px; }
+
+.hm-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.15);
+}
+.hm-dot.on   { background: rgba(37,99,235,.85); }
+.hm-dot.mis  { background: rgba(239,68,68,.85); }
+.hm-dot.ring { background: transparent; border: 2px solid rgba(37,99,235,.9); }
 
 .heatmap-empty {
   display: flex;

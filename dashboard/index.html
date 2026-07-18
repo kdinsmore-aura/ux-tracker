@@ -342,108 +342,173 @@
         <div class="section-panel" :class="{ active: activeSection === 'heatmaps' }" id="sec-heatmaps">
 
           <div class="section-head">
-            <h2>Heatmaps</h2>
-            <p>Click distribution overlaid on each captured screen.</p>
+            <h2>Click Maps</h2>
+            <p>Where participants clicked — per recorded step, or aggregated per screen.</p>
           </div>
 
-          <!-- Loading screens list -->
-          <template x-if="screens.loading">
-            <div class="loading-row"><div class="spinner"></div><span>Loading screens…</span></div>
+          <template x-if="heatmap.loading">
+            <div class="loading-row"><div class="spinner"></div><span>Loading click maps…</span></div>
           </template>
 
-          <div class="error-state" x-show="screens.error && !screens.loading">
-            <p x-text="screens.error"></p>
-            <button class="btn btn-secondary btn-sm" @click="loadScreens(true)">Retry</button>
+          <div class="error-state" x-show="heatmap.error && !heatmap.loading">
+            <p x-text="heatmap.error"></p>
+            <button class="btn btn-secondary btn-sm" @click="loadHeatmaps(true)">Retry</button>
           </div>
 
-          <template x-if="!screens.loading && !screens.error && screens.list.length === 0">
-            <div class="msg msg-info">No screens have been captured for this study yet.</div>
+          <template x-if="heatmap.loaded && !heatmap.error && heatmapItems.length === 0">
+            <div class="msg msg-info">Nothing captured yet — record the study's path first.</div>
           </template>
 
-          <template x-if="!screens.loading && !screens.error && screens.list.length > 0">
-            <div class="heatmap-layout">
-
-              <!-- Screen selector -->
-              <div class="screen-selector-panel">
-                <div class="screen-selector-title">Screens</div>
-                <template x-for="screen in screens.list" :key="screen.id">
-                  <div class="screen-thumb-item"
-                       :class="{ active: heatmap.selectedScreenId === screen.screen_id }"
-                       @click="selectHeatmapScreen(screen)">
-                    <img class="screen-thumb-img"
-                         :src="screen.screenshot_url"
-                         :alt="screen.label || screen.screen_id"
-                         loading="lazy">
-                    <span class="screen-thumb-label" x-text="screen.label || screen.screen_id"></span>
-                  </div>
-                </template>
+          <template x-if="heatmap.loaded && !heatmap.error && heatmapItems.length > 0">
+            <div>
+              <!-- Mode -->
+              <div class="heatmap-mode-bar">
+                <div class="toggle-btn-group">
+                  <button class="toggle-btn" :class="{ active: heatmap.mode === 'steps' }"
+                          @click="setHeatmapMode('steps')">By Step</button>
+                  <button class="toggle-btn" :class="{ active: heatmap.mode === 'screens' }"
+                          @click="setHeatmapMode('screens')">By Screen</button>
+                </div>
+                <span class="heatmap-mode-hint"
+                      x-text="heatmap.mode === 'steps'
+                        ? 'One map per recorded step — in-page flows get their own map per step even on the same URL.'
+                        : 'All clicks on a URL, across every step.'"></span>
               </div>
 
-              <!-- Heatmap main -->
-              <div class="heatmap-main">
+              <div class="heatmap-layout">
 
-                <!-- Stale banner -->
-                <div class="stale-banner" x-show="heatmap.selectedScreen?.is_stale">
-                  ⚠ This screen was modified after recording. Sessions before
-                  <strong x-text="fmtDate(heatmap.selectedScreen?.change_detected_at)"></strong>
-                  may reflect a different page layout.
-                </div>
-
-                <!-- Controls -->
-                <div class="heatmap-controls">
-                  <div class="control-group">
-                    <span class="control-label">Clicks:</span>
-                    <div class="toggle-btn-group">
-                      <button class="toggle-btn" :class="{ active: heatmap.clickFilter === 'all' }"
-                              @click="setHeatmapFilter('clickFilter','all')">All</button>
-                      <button class="toggle-btn" :class="{ active: heatmap.clickFilter === 'on_path' }"
-                              @click="setHeatmapFilter('clickFilter','on_path')">On-path</button>
-                      <button class="toggle-btn" :class="{ active: heatmap.clickFilter === 'mis_click' }"
-                              @click="setHeatmapFilter('clickFilter','mis_click')">Mis-clicks</button>
-                    </div>
-                  </div>
-                  <div class="control-group">
-                    <span class="control-label">Sessions:</span>
-                    <div class="toggle-btn-group">
-                      <button class="toggle-btn" :class="{ active: heatmap.sessionFilter === 'all' }"
-                              @click="setHeatmapFilter('sessionFilter','all')">All</button>
-                      <button class="toggle-btn" :class="{ active: heatmap.sessionFilter === 'completed' }"
-                              @click="setHeatmapFilter('sessionFilter','completed')">Completed only</button>
-                    </div>
-                  </div>
-                  <div class="control-group">
-                    <span class="control-label">Opacity:</span>
-                    <input type="range" class="range-input" min="0.3" max="1" step="0.05"
-                           x-model="heatmap.opacity" @input="applyHeatmapConfig()">
-                  </div>
-                  <div class="control-group">
-                    <span class="control-label">Radius:</span>
-                    <input type="range" class="range-input" min="10" max="50" step="2"
-                           x-model="heatmap.radius" @input="applyHeatmapConfig()">
-                  </div>
-                </div>
-
-                <!-- Heatmap canvas -->
-                <div class="heatmap-container" id="heatmapContainer">
-                  <template x-if="!heatmap.selectedScreenId">
-                    <div class="heatmap-empty">Select a screen to view its heatmap.</div>
-                  </template>
-                  <template x-if="heatmap.selectedScreenId">
-                    <div>
-                      <img class="heatmap-screenshot" id="heatmapImg"
-                           :src="heatmap.selectedScreen?.screenshot_url"
-                           @load="onHeatmapImgLoad()"
-                           alt="Screen screenshot">
-                      <div class="heatmap-canvas-wrap" id="heatmapCanvasWrap"></div>
-                    </div>
-                  </template>
-                  <template x-if="heatmap.eventsLoading">
-                    <div class="heatmap-empty" style="position:absolute;inset:0;background:rgba(255,255,255,.7)">
-                      <div class="spinner spinner-lg"></div>
+                <!-- Selector -->
+                <div class="screen-selector-panel">
+                  <div class="screen-selector-title"
+                       x-text="heatmap.mode === 'steps' ? 'Recorded steps' : 'Captured screens'"></div>
+                  <template x-for="item in heatmapItems" :key="item.key">
+                    <div class="screen-thumb-item"
+                         :class="{ active: heatmap.selectedKey === item.key }"
+                         @click="selectHeatmapItem(item.key)">
+                      <img class="screen-thumb-img" x-show="item.shot"
+                           :src="item.shot" :alt="item.label" loading="lazy">
+                      <div class="screen-thumb-noimg" x-show="!item.shot">no screenshot</div>
+                      <span class="screen-thumb-label" x-text="item.label"></span>
+                      <span class="screen-thumb-sub" x-text="item.sub"></span>
                     </div>
                   </template>
                 </div>
 
+                <!-- Main -->
+                <div class="heatmap-main">
+
+                  <div class="stale-banner" x-show="heatmapSelected?.stale">
+                    ⚠ This screen was modified after recording. Sessions before
+                    <strong x-text="fmtDate(heatmapSelected?.staleAt)"></strong>
+                    may reflect a different page layout.
+                  </div>
+
+                  <!-- Controls -->
+                  <div class="heatmap-controls">
+                    <div class="control-group">
+                      <span class="control-label">View:</span>
+                      <div class="toggle-btn-group">
+                        <button class="toggle-btn" :class="{ active: heatmap.view === 'dots' }"
+                                @click="setHeatmapFilter('view','dots')">Click dots</button>
+                        <button class="toggle-btn" :class="{ active: heatmap.view === 'density' }"
+                                @click="setHeatmapFilter('view','density')">Density</button>
+                      </div>
+                    </div>
+                    <div class="control-group">
+                      <span class="control-label">Clicks:</span>
+                      <div class="toggle-btn-group">
+                        <button class="toggle-btn" :class="{ active: heatmap.clickFilter === 'all' }"
+                                @click="setHeatmapFilter('clickFilter','all')">All</button>
+                        <button class="toggle-btn" :class="{ active: heatmap.clickFilter === 'on_path' }"
+                                @click="setHeatmapFilter('clickFilter','on_path')">On-path</button>
+                        <button class="toggle-btn" :class="{ active: heatmap.clickFilter === 'mis_click' }"
+                                @click="setHeatmapFilter('clickFilter','mis_click')">Mis-clicks</button>
+                      </div>
+                    </div>
+                    <div class="control-group">
+                      <span class="control-label">Sessions:</span>
+                      <div class="toggle-btn-group">
+                        <button class="toggle-btn" :class="{ active: heatmap.sessionFilter === 'all' }"
+                                @click="setHeatmapFilter('sessionFilter','all')">All</button>
+                        <button class="toggle-btn" :class="{ active: heatmap.sessionFilter === 'completed' }"
+                                @click="setHeatmapFilter('sessionFilter','completed')">Completed only</button>
+                      </div>
+                    </div>
+                    <div class="control-group" x-show="heatmap.view === 'density'">
+                      <span class="control-label">Radius:</span>
+                      <input type="range" class="range-input" min="12" max="60" step="2"
+                             x-model="heatmap.radius" @input="setHeatmapFilter('radius', heatmap.radius)">
+                    </div>
+                  </div>
+
+                  <!-- Sample size + expected target -->
+                  <div class="heatmap-stats">
+                    <strong x-text="heatmapStats.clicks + ' click' + (heatmapStats.clicks !== 1 ? 's' : '')"></strong>
+                    <span x-text="'· ' + heatmapStats.participants + ' participant' + (heatmapStats.participants !== 1 ? 's' : '')"></span>
+                    <span class="hm-mis" x-show="heatmapStats.mis > 0"
+                          x-text="'· ' + heatmapStats.mis + ' mis-click' + (heatmapStats.mis !== 1 ? 's' : '')"></span>
+                    <span class="hm-expected" x-show="heatmapSelected?.expected"
+                          x-text="'· expected: “' + heatmapSelected?.expected + '”'"></span>
+                  </div>
+
+                  <!-- Map -->
+                  <div class="heatmap-container" id="heatmapContainer">
+                    <template x-if="heatmapSelected && !heatmapSelected.shot">
+                      <div class="heatmap-empty">
+                        No screenshot was captured for this
+                        <span x-text="heatmap.mode === 'steps' ? 'step' : 'screen'"></span> —
+                        re-record the path to capture it.
+                      </div>
+                    </template>
+                    <template x-if="heatmapSelected?.shot">
+                      <div class="heatmap-shotwrap" @click="heatmapCanvasClick($event)">
+                        <img class="heatmap-screenshot" id="heatmapImg"
+                             :src="heatmapSelected.shot"
+                             @load="onHeatmapImgLoad()"
+                             alt="Screen screenshot">
+                        <div class="heatmap-canvas-wrap" id="heatmapCanvasWrap"></div>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- Clicked-dot detail -->
+                  <div class="journey-popout" x-show="heatPopout" x-cloak>
+                    <div class="journey-popout-head">
+                      <span class="journey-popout-title" x-text="heatPopout?.title"></span>
+                      <button class="drawer-close" @click="heatPopout = null">✕</button>
+                    </div>
+                    <div class="journey-popout-rows">
+                      <template x-for="(row, i) in (heatPopout?.rows || [])" :key="i">
+                        <div class="journey-popout-row">
+                          <span class="jp-k" x-text="row[0]"></span>
+                          <span class="jp-v" x-text="row[1]"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <!-- Deviation clicks that happened off this screen -->
+                  <div class="hm-offnote" x-show="heatmapOffScreen.length > 0">
+                    <div class="hm-offnote-title">
+                      Clicks at this step on other screens (deviations) — not shown above:
+                    </div>
+                    <template x-for="g in heatmapOffScreen" :key="g.screenId">
+                      <div class="hm-offnote-row">
+                        <code x-text="g.screenId"></code>
+                        <span x-text="'· ' + g.count + ' click' + (g.count !== 1 ? 's' : '') + ' · ' + g.who"></span>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- Legend -->
+                  <div class="journey-legend" x-show="heatmap.view === 'dots'">
+                    <span class="jl-item"><span class="hm-dot on"></span> on-path click</span>
+                    <span class="jl-item"><span class="hm-dot mis"></span> mis-click</span>
+                    <span class="jl-item"><span class="hm-dot ring"></span> participant's first click here</span>
+                    <span class="jl-item jl-hint">click a dot for details</span>
+                  </div>
+
+                </div>
               </div>
             </div>
           </template>
@@ -988,7 +1053,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/heatmap.js@2.0.5/build/heatmap.min.js"></script>
 <script src="dashboard.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </body>

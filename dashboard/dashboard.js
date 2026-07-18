@@ -1,16 +1,6 @@
 /* UX Tracker — Researcher Dashboard
-   Depends on window.supabase (Supabase JS v2), window.Chart (Chart.js v4),
-   window.h337 (heatmap.js v2). Alpine.js loaded after this file. */
-
-// Inlined from src/utils/coordinates.js
-function projectToScreenshot(event, screenshotW, screenshotH, displayW, displayH) {
-  const scaleX = screenshotW > 0 ? displayW / screenshotW : 1;
-  const scaleY = screenshotH > 0 ? displayH / screenshotH : 1;
-  return {
-    x: Math.round((event.viewport_x || 0) * scaleX),
-    y: Math.round((event.viewport_y || 0) * scaleY),
-  };
-}
+   Depends on window.supabase (Supabase JS v2), window.Chart (Chart.js v4).
+   Alpine.js loaded after this file. */
 
 function escSvg(str) {
   return String(str || '')
@@ -37,7 +27,7 @@ function dashboardApp() {
       },
       {
         id: 'heatmaps',
-        label: 'Heatmaps',
+        label: 'Click Maps',
         icon: '<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="9" r="2.5"/><circle cx="9" cy="9" r="5.5" opacity=".4"/><circle cx="9" cy="9" r="8" opacity=".15"/></svg>',
       },
       {
@@ -92,19 +82,19 @@ function dashboardApp() {
     // ── Screens ────────────────────────────────────────────────────────────
     screens: { loading: false, error: '', loaded: false, list: [] },
 
-    // ── Heatmap ────────────────────────────────────────────────────────────
+    // ── Click maps (heatmaps) ──────────────────────────────────────────────
     heatmap: {
-      selectedScreenId: null,
-      selectedScreen: null,
-      clickFilter: 'all',
-      sessionFilter: 'all',
-      opacity: 0.6,
-      radius: 25,
-      rawEvents: [],
-      eventsLoading: false,
+      mode: 'steps',        // 'steps' (one map per recorded step) | 'screens' (by URL)
+      view: 'dots',         // 'dots' (small-N click map) | 'density' (heat blur)
+      clickFilter: 'all',   // all | on_path | mis_click
+      sessionFilter: 'all', // all | completed
+      selectedKey: null,
+      radius: 26,           // density blur radius
+      loading: false, loaded: false, error: '',
+      clicks: [],           // every click event for the study (single fetch)
+      labels: {},           // session_id → participant label
     },
-    _heatmapInstance: null,
-    _completedSessionIds: null,
+    heatPopout: null,       // clicked-dot detail card
 
     // ── Paths ──────────────────────────────────────────────────────────────
     paths: { loading: false, error: '', loaded: false, steps: [] },
@@ -300,7 +290,7 @@ function dashboardApp() {
     goSection(id) {
       this.activeSection = id;
       if (id === 'overview' && !this.overview.loaded) this.loadOverview();
-      if (id === 'heatmaps' && !this.screens.loaded) this.loadScreens();
+      if (id === 'heatmaps' && !this.heatmap.loaded) this.loadHeatmaps();
       if (id === 'paths' && !this.paths.loaded) this.loadPaths();
       if (id === 'paths' && this.pathsTab === 'journeys' && !this.flow.loaded) this.loadFlowJourneys();
       if (id === 'participants' && !this.participants.loaded) this.loadParticipants();
@@ -365,10 +355,6 @@ function dashboardApp() {
           participant_label: labelMap[s.participant_id] || null,
           mis_click_count: misClickCounts[s.id] ?? 0,
         }));
-
-        this._completedSessionIds = new Set(
-          this.sessions.list.filter(s => s.status === 'completed').map(s => s.id)
-        );
 
         this.sessions.loaded = true;
       } catch (e) {
@@ -696,103 +682,273 @@ function dashboardApp() {
     // HEATMAP
     // ═══════════════════════════════════════════════════════════════════════
 
-    async selectHeatmapScreen(screen) {
-      this.heatmap.selectedScreenId = screen.screen_id;
-      this.heatmap.selectedScreen = screen;
-      this.heatmap.rawEvents = [];
-      if (this._heatmapInstance) {
-        try { this._heatmapInstance.setData({ max: 10, data: [] }); } catch {}
-      }
-      await this._loadHeatmapEvents(screen.screen_id);
-    },
-
-    async _loadHeatmapEvents(screenId) {
-      this.heatmap.eventsLoading = true;
+    // One fetch: every click for the study, plus screens + sessions for
+    // screenshots, labels, and the completed filter.
+    async loadHeatmaps(force = false) {
+      if (this.heatmap.loaded && !force) return;
+      this.heatmap.loading = true;
+      this.heatmap.error = '';
       try {
+        await Promise.all([this.loadScreens(), this.loadSessions()]);
         const { data, error } = await this._db
           .from('events')
-          .select('viewport_x, viewport_y, is_on_path, is_mis_click, session_id')
+          .select('session_id, screen_id, step_index, viewport_x, viewport_y, is_on_path, is_mis_click, element_text, element_selector, element_tag, ms_since_session_start')
           .eq('study_id', this.studyId)
-          .eq('screen_id', screenId)
-          .eq('event_type', 'click');
+          .eq('event_type', 'click')
+          .order('ms_since_session_start', { ascending: true });
         if (error) throw error;
-        this.heatmap.rawEvents = data || [];
+        this.heatmap.clicks = data || [];
+        const labels = {};
+        (this.sessions.list || []).forEach((s) => {
+          labels[s.id] = s.participant_label || s.id.slice(0, 6);
+        });
+        this.heatmap.labels = labels;
+        this.heatmap.loaded = true;
+        if (!this.heatmap.selectedKey && this.heatmapItems[0]) {
+          this.heatmap.selectedKey = this.heatmapItems[0].key;
+        }
         this.$nextTick(() => this.renderHeatmap());
-      } catch {}
-      finally { this.heatmap.eventsLoading = false; }
+      } catch (e) {
+        this.heatmap.error = `Failed to load click maps: ${e.message}`;
+      } finally {
+        this.heatmap.loading = false;
+      }
+    },
+
+    get _screensByNorm() {
+      const map = {};
+      (this.screens.list || []).forEach((s) => { map[this._normScreen(s.screen_id)] = s; });
+      return map;
+    },
+
+    // Selector entries. By Step (default): one map per recorded step with the
+    // step's own screenshot — in-page flows get one map per step even when the
+    // URL never changes. By Screen: one aggregate map per captured URL.
+    get heatmapItems() {
+      if (this.heatmap.mode === 'screens') {
+        return (this.screens.list || []).map((s) => ({
+          key: 's:' + s.screen_id, kind: 'screen',
+          label: this._shortScreen(s.screen_id), sub: s.screen_id,
+          screenId: this._normScreen(s.screen_id),
+          shot: s.screenshot_url, vw: s.viewport_width, vh: s.viewport_height,
+          stale: s.is_stale, staleAt: s.change_detected_at,
+        }));
+      }
+      const path = this.study?.ideal_path || [];
+      const items = path.map((p, i) => {
+        const sid = this._normScreen(p.screenId);
+        const scr = this._screensByNorm[sid];
+        return {
+          key: 'p:' + i, kind: 'step', stepIndex: i,
+          label: 'Step ' + (i + 1),
+          sub: p.elementText || p.elementSelector || sid,
+          screenId: sid,
+          shot: p.screenshotUrl || scr?.screenshot_url || null,
+          vw: scr?.viewport_width, vh: scr?.viewport_height,
+          stale: scr?.is_stale, staleAt: scr?.change_detected_at,
+          expected: p.elementText || '', expectedSel: p.elementSelector || '',
+        };
+      });
+      const last = path[path.length - 1];
+      const endSid = this._normScreen(last?.endScreenId || '');
+      if (endSid) {
+        const scr = this._screensByNorm[endSid];
+        items.push({
+          key: 'p:end', kind: 'end', label: 'End screen', sub: endSid,
+          screenId: endSid,
+          shot: last.endScreenshotUrl || scr?.screenshot_url || null,
+          vw: scr?.viewport_width, vh: scr?.viewport_height,
+          stale: scr?.is_stale, staleAt: scr?.change_detected_at,
+        });
+      }
+      return items;
+    },
+
+    get heatmapSelected() {
+      return this.heatmapItems.find((i) => i.key === this.heatmap.selectedKey) || null;
+    },
+
+    get _completedIds() {
+      return new Set((this.sessions.list || [])
+        .filter((s) => s.status === 'completed').map((s) => s.id));
+    },
+
+    // Clicks plotted on the selected map. Step maps take only clicks made
+    // WHILE AT that step AND on that step's screen — a deviating participant's
+    // clicks on other pages never pollute a step's screenshot.
+    get heatmapClicks() {
+      const it = this.heatmapSelected;
+      if (!it) return [];
+      let list = this.heatmap.clicks.filter((c) => this._normScreen(c.screen_id) === it.screenId);
+      if (it.kind === 'step') list = list.filter((c) => c.step_index === it.stepIndex);
+      if (this.heatmap.clickFilter === 'on_path')   list = list.filter((c) => c.is_on_path);
+      if (this.heatmap.clickFilter === 'mis_click') list = list.filter((c) => c.is_mis_click);
+      if (this.heatmap.sessionFilter === 'completed') {
+        list = list.filter((c) => this._completedIds.has(c.session_id));
+      }
+      return list;
+    },
+
+    // Step mode: clicks made at this step but on OTHER screens — the
+    // deviation clicks that have no home on this screenshot.
+    get heatmapOffScreen() {
+      const it = this.heatmapSelected;
+      if (!it || it.kind !== 'step') return [];
+      const groups = {};
+      this.heatmap.clicks
+        .filter((c) => c.step_index === it.stepIndex && this._normScreen(c.screen_id) !== it.screenId)
+        .forEach((c) => {
+          const sid = this._normScreen(c.screen_id);
+          groups[sid] ??= { screenId: sid, count: 0, who: new Set() };
+          groups[sid].count++;
+          groups[sid].who.add(this.heatmap.labels[c.session_id] || '?');
+        });
+      return Object.values(groups).map((g) => ({ ...g, who: [...g.who].join(', ') }));
+    },
+
+    get heatmapStats() {
+      const list = this.heatmapClicks;
+      return {
+        clicks: list.length,
+        participants: new Set(list.map((c) => c.session_id)).size,
+        mis: list.filter((c) => c.is_mis_click).length,
+      };
+    },
+
+    selectHeatmapItem(key) {
+      this.heatmap.selectedKey = key;
+      this.heatPopout = null;
+      this.$nextTick(() => this.renderHeatmap());
+    },
+
+    setHeatmapMode(mode) {
+      this.heatmap.mode = mode;
+      this.heatPopout = null;
+      this.heatmap.selectedKey = this.heatmapItems[0]?.key ?? null;
+      this.$nextTick(() => this.renderHeatmap());
     },
 
     setHeatmapFilter(key, val) {
       this.heatmap[key] = val;
-      this.renderHeatmap();
-    },
-
-    applyHeatmapConfig() {
-      if (this._heatmapInstance) {
-        try {
-          this._heatmapInstance.configure({
-            maxOpacity: parseFloat(this.heatmap.opacity),
-            radius: parseInt(this.heatmap.radius),
-          });
-        } catch {}
-      }
-      this.renderHeatmap();
+      this.heatPopout = null;
+      this.$nextTick(() => this.renderHeatmap());
     },
 
     onHeatmapImgLoad() {
       this.$nextTick(() => this.renderHeatmap());
     },
 
+    // Custom canvas renderer — no external heatmap library.
+    // Dots (default): one mark per click, blue = on-path, red = mis-click,
+    // ring = that participant's FIRST click on this map (first-click testing).
+    // Density: alpha-accumulated blur colorized blue→green→amber→red.
     renderHeatmap() {
       const wrap = document.getElementById('heatmapCanvasWrap');
-      const img = document.getElementById('heatmapImg');
-      if (!wrap || !img || !window.h337) return;
+      const img  = document.getElementById('heatmapImg');
+      const it   = this.heatmapSelected;
+      if (!wrap || !img || !it) return;
+      const dw = img.clientWidth, dh = img.clientHeight;
+      if (!dw || !dh) return;   // not laid out yet — img @load re-invokes
 
-      const screen = this.heatmap.selectedScreen;
-      const displayW = img.clientWidth || img.naturalWidth || 800;
-      const displayH = img.clientHeight || img.naturalHeight || 600;
-      const screenshotW = screen?.viewport_width || displayW;
-      const screenshotH = screen?.viewport_height || displayH;
+      let canvas = wrap.querySelector('canvas');
+      if (!canvas) { canvas = document.createElement('canvas'); wrap.appendChild(canvas); }
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.round(dw * dpr);
+      canvas.height = Math.round(dh * dpr);
+      canvas.style.width = dw + 'px';
+      canvas.style.height = dh + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, dw, dh);
 
-      // Recreate instance if container changed or not yet created
-      let needsCreate = !this._heatmapInstance;
-      if (!needsCreate) {
-        try {
-          if (this._heatmapInstance._renderer.canvas.parentElement !== wrap) needsCreate = true;
-        } catch { needsCreate = true; }
-      }
+      // Clicks are in the participant's viewport space; the screenshot was
+      // captured at the recorder's viewport. Scale via capture dimensions.
+      const sx = it.vw > 0 ? dw / it.vw : 1;
+      const sy = it.vh > 0 ? dh / it.vh : 1;
+      const clicks = this.heatmapClicks;
 
-      if (needsCreate) {
-        wrap.innerHTML = '';
-        try {
-          this._heatmapInstance = window.h337.create({
-            container: wrap,
-            maxOpacity: parseFloat(this.heatmap.opacity),
-            radius: parseInt(this.heatmap.radius),
-            blur: 0.85,
-          });
-        } catch { return; }
-      }
-
-      const completedIds = this._completedSessionIds || new Set();
-      const filtered = this.heatmap.rawEvents.filter(ev => {
-        if (this.heatmap.sessionFilter === 'completed' && !completedIds.has(ev.session_id)) return false;
-        if (this.heatmap.clickFilter === 'on_path' && !ev.is_on_path) return false;
-        if (this.heatmap.clickFilter === 'mis_click' && !ev.is_mis_click) return false;
-        return true;
-      });
-
-      const points = filtered.map(ev => {
-        const { x, y } = projectToScreenshot(ev, screenshotW, screenshotH, displayW, displayH);
-        return { x, y, value: 1 };
-      });
-
-      try {
-        this._heatmapInstance.setData({
-          max: Math.max(5, Math.ceil(points.length / 10)),
-          data: points,
+      if (this.heatmap.view === 'density') {
+        const off = document.createElement('canvas');
+        off.width = dw; off.height = dh;
+        const octx = off.getContext('2d');
+        const r = Number(this.heatmap.radius) || 26;
+        clicks.forEach((c) => {
+          const x = (c.viewport_x || 0) * sx, y = (c.viewport_y || 0) * sy;
+          const g = octx.createRadialGradient(x, y, 0, x, y, r);
+          g.addColorStop(0, 'rgba(0,0,0,0.4)');
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          octx.fillStyle = g;
+          octx.fillRect(x - r, y - r, r * 2, r * 2);
         });
-      } catch {}
+        const idata = octx.getImageData(0, 0, dw, dh);
+        const px = idata.data;
+        for (let i = 0; i < px.length; i += 4) {
+          const a = px[i + 3] / 255;
+          if (a <= 0.03) { px[i + 3] = 0; continue; }
+          const t = Math.min(1, a * 1.5);
+          let r2, g2, b2;
+          if (t < 0.35)      { r2 = 37;  g2 = 99;  b2 = 235; }
+          else if (t < 0.65) { r2 = 16;  g2 = 185; b2 = 129; }
+          else if (t < 0.85) { r2 = 245; g2 = 158; b2 = 11;  }
+          else               { r2 = 239; g2 = 68;  b2 = 68;  }
+          px[i] = r2; px[i + 1] = g2; px[i + 2] = b2;
+          px[i + 3] = Math.round(Math.min(0.72, 0.18 + t * 0.55) * 255);
+        }
+        octx.putImageData(idata, 0, 0);
+        ctx.drawImage(off, 0, 0, dw, dh);
+        return;
+      }
+
+      // Dot mode
+      const seen = new Set();
+      clicks.forEach((c) => {
+        const x = (c.viewport_x || 0) * sx, y = (c.viewport_y || 0) * sy;
+        const mis = !!c.is_mis_click;
+        const first = !seen.has(c.session_id);
+        seen.add(c.session_id);
+        ctx.beginPath();
+        ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = mis ? 'rgba(239,68,68,.8)' : 'rgba(37,99,235,.8)';
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(255,255,255,.95)';
+        ctx.stroke();
+        if (first) {
+          ctx.beginPath();
+          ctx.arc(x, y, 12, 0, Math.PI * 2);
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = mis ? 'rgba(239,68,68,.9)' : 'rgba(37,99,235,.9)';
+          ctx.stroke();
+        }
+      });
+    },
+
+    // Click a dot → forensic card: what was clicked, by whom, when.
+    heatmapCanvasClick(e) {
+      const img = document.getElementById('heatmapImg');
+      const it = this.heatmapSelected;
+      if (!img || !it) return;
+      const rect = img.getBoundingClientRect();
+      const dx = e.clientX - rect.left, dy = e.clientY - rect.top;
+      const sx = it.vw > 0 ? rect.width / it.vw : 1;
+      const sy = it.vh > 0 ? rect.height / it.vh : 1;
+      let best = null, bestDist = 14 * 14;
+      this.heatmapClicks.forEach((c) => {
+        const x = (c.viewport_x || 0) * sx, y = (c.viewport_y || 0) * sy;
+        const d2 = (x - dx) * (x - dx) + (y - dy) * (y - dy);
+        if (d2 < bestDist) { best = c; bestDist = d2; }
+      });
+      if (!best) { this.heatPopout = null; return; }
+      this.heatPopout = {
+        title: best.is_mis_click ? 'Mis-click' : (best.is_on_path ? 'On-path click' : 'Click'),
+        rows: [
+          ['Clicked', best.element_text || '(no visible text)'],
+          ['Selector', best.element_selector || '—'],
+          ['Element', best.element_tag ? `<${String(best.element_tag).toLowerCase()}>` : '—'],
+          ['Participant', this.heatmap.labels[best.session_id] || best.session_id.slice(0, 6)],
+          ['When', this.fmtMs(best.ms_since_session_start)],
+        ],
+      };
     },
 
 
