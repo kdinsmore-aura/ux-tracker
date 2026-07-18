@@ -141,6 +141,7 @@ function dashboardApp() {
     flow: { loading: false, loaded: false, error: '', bySession: {} },
     flowSel: [],           // selected session ids
     flowPopout: null,      // detail card for the clicked aggregate node
+    pathsTab: 'flow',      // 'flow' (funnel) | 'journeys' — persisted
 
     // ── Chart instances ────────────────────────────────────────────────────
     _taskChart: null,
@@ -159,6 +160,7 @@ function dashboardApp() {
         const w = parseInt(localStorage.getItem('uxt_dash_drawer_w'), 10);
         if (Number.isFinite(w) && w >= 420) this.drawerW = w;
         this.journeyVert = localStorage.getItem('uxt_dash_journey_vert') === '1';
+        if (localStorage.getItem('uxt_dash_paths_tab') === 'journeys') this.pathsTab = 'journeys';
       } catch {}
 
       const params = new URLSearchParams(window.location.search);
@@ -297,7 +299,7 @@ function dashboardApp() {
       if (id === 'overview' && !this.overview.loaded) this.loadOverview();
       if (id === 'heatmaps' && !this.screens.loaded) this.loadScreens();
       if (id === 'paths' && !this.paths.loaded) this.loadPaths();
-      if (id === 'paths' && !this.flow.loaded) this.loadFlowJourneys();
+      if (id === 'paths' && this.pathsTab === 'journeys' && !this.flow.loaded) this.loadFlowJourneys();
       if (id === 'participants' && !this.participants.loaded) this.loadParticipants();
     },
 
@@ -1300,6 +1302,12 @@ function dashboardApp() {
                    '#DC2626', '#0891B2', '#65A30D', '#C026D3', '#EA580C'],
 
     flowColor(i) { return this._FLOW_COLORS[i % this._FLOW_COLORS.length]; },
+
+    setPathsTab(tab) {
+      this.pathsTab = tab;
+      try { localStorage.setItem('uxt_dash_paths_tab', tab); } catch {}
+      if (tab === 'journeys' && !this.flow.loaded) this.loadFlowJourneys();
+    },
 
     get flowSessions() { return this.sessions.list || []; },
 

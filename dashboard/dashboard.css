@@ -994,7 +994,13 @@ label {
 
 /* ── Aggregate participant journeys (Path Analysis) ─────────────────────────── */
 
-.flow-journeys { margin-top: 28px; }
+.paths-tabs {
+  display: flex;
+  margin: 26px 0 16px;
+}
+.paths-tabs .toggle-btn { padding: 7px 14px; font-size: 12px; }
+
+.flow-journeys { margin-top: 0; }
 
 .flow-controls { display: flex; gap: 6px; }
 

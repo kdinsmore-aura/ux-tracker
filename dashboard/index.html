@@ -537,17 +537,26 @@
                 </div>
               </div>
 
+              <!-- Flow visualizations: funnel / journeys tabs -->
+              <div class="paths-tabs">
+                <div class="toggle-btn-group">
+                  <button class="toggle-btn" :class="{ active: pathsTab === 'flow' }"
+                          @click="setPathsTab('flow')">Participant Flow Through Ideal Path</button>
+                  <button class="toggle-btn" :class="{ active: pathsTab === 'journeys' }"
+                          @click="setPathsTab('journeys')">Participant Journeys</button>
+                </div>
+              </div>
+
               <!-- Flow diagram -->
-              <div class="flow-diagram">
-                <div class="flow-title">Participant Flow Through Ideal Path</div>
+              <div class="flow-diagram" x-show="pathsTab === 'flow'">
                 <div id="flowDiagramWrap"></div>
               </div>
 
               <!-- Aggregate participant journeys -->
-              <div class="flow-journeys">
-                <div class="journey-head">
-                  <div class="flow-title" style="margin-bottom:0">Participant Journeys</div>
-                  <div class="flow-controls" x-show="flow.loaded && flowSessions.length > 0">
+              <div class="flow-journeys" x-show="pathsTab === 'journeys'">
+                <div class="journey-head" x-show="flow.loaded && flowSessions.length > 0">
+                  <div></div>
+                  <div class="flow-controls">
                     <button class="btn btn-secondary btn-sm" @click="flowSelAll()">All</button>
                     <button class="btn btn-secondary btn-sm" @click="flowSelNone()">None</button>
                   </div>
