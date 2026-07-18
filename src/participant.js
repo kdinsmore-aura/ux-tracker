@@ -1341,6 +1341,15 @@ export default async function initParticipant(config, study) {
       completed_steps:    _completedSteps,
     }).catch((err) => console.error('[UXTracker Participant] updateSession (resume) error:', err));
 
+    // Full page loads re-boot the tracker without a navigation event, so the
+    // landing screen would otherwise never appear in the event stream — the
+    // dashboard's route reconstruction would only see it via clicks.
+    bufferEvent(
+      _makeEvent('screen_enter', computeScreenId(_config.screens), {}),
+      _getState(),
+      _participantId,
+    );
+
     _activateTracking();
     return;
   }

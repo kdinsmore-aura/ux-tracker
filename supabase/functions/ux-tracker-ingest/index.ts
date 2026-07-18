@@ -264,7 +264,15 @@ Deno.serve(async (req: Request) => {
           return fail('Session participant mismatch');
         }
 
-        const { data, error } = await db.from('events').insert(events).select();
+        // Events are delivered at-least-once (unload beacon + next-page
+        // re-flush of the persisted buffer can both land). client_event_id is
+        // stamped client-side and UNIQUE in the table, so duplicate deliveries
+        // are ignored instead of inserted twice. Events from older bundles
+        // carry no id (NULLs never conflict) and insert as before.
+        const { data, error } = await db
+          .from('events')
+          .upsert(events, { onConflict: 'client_event_id', ignoreDuplicates: true })
+          .select();
         if (error) {
           console.error('batchInsertEvents insert:', error);
           return fail('Failed to insert events');

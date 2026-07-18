@@ -192,6 +192,10 @@ CREATE TABLE events (
   ms_since_session_start integer,
   -- Milliseconds since previous event in this session
   ms_since_last_event    integer,
+  -- Client-generated id: events are delivered at-least-once (unload beacon +
+  -- next-page re-flush); the ingest function upserts on this id so duplicate
+  -- deliveries are ignored. NULL on rows from older tracker bundles.
+  client_event_id        uuid          UNIQUE,
   timestamp              timestamptz   NOT NULL DEFAULT now(),
 
   CONSTRAINT events_event_type_check

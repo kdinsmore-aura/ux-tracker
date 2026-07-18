@@ -38,12 +38,22 @@ export function getSessionState(participantId) {
 /**
  * Serialize and persist the session state.
  * Always stamps lastActivityAt with the current time before writing.
+ *
+ * The live event buffer is always carried along unless the caller passes an
+ * explicit eventBuffer (bufferEvent's snapshot, flushEventBuffer's []). This
+ * module owns the buffer, and callers persisting unrelated state (step
+ * advance, task complete, minimize) used to overwrite the stored copy with
+ * nothing — losing every un-flushed event on the next page navigation.
  */
 export function saveSessionState(participantId, stateObject) {
   try {
     sessionStorage.setItem(
       _storageKey(participantId),
-      JSON.stringify({ ...stateObject, lastActivityAt: new Date().toISOString() }),
+      JSON.stringify({
+        ...stateObject,
+        eventBuffer: stateObject.eventBuffer ?? [..._eventBuffer],
+        lastActivityAt: new Date().toISOString(),
+      }),
     );
   } catch {
     // Quota exceeded or private-browsing restrictions — silently skip.
@@ -73,12 +83,26 @@ export function isSessionExpired(stateObject, timeoutMinutes = 30) {
 // These event types signal end-of-session and should trigger an immediate flush.
 const FLUSH_TRIGGER_TYPES = new Set(['session_complete', 'session_abandon']);
 
+// Client-generated id stamped on every event so the server can deduplicate.
+// Events are delivered at-least-once by design: the unload beacon AND the
+// next page's re-flush of the persisted buffer may both succeed, and the
+// completion path double-flushes by racing design. The unique id makes every
+// duplicate delivery a no-op instead of a duplicate row.
+function _clientEventId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 /**
  * Add an event to the in-memory buffer and persist it to sessionStorage.
  * Triggers an async flush when the buffer reaches 20 events or the event
  * type demands it (session_complete, session_abandon).
  */
 export function bufferEvent(eventData, sessionState, participantId) {
+  if (!eventData.client_event_id) eventData.client_event_id = _clientEventId();
   _eventBuffer.push(eventData);
   saveSessionState(participantId, { ...sessionState, eventBuffer: [..._eventBuffer] });
 
@@ -234,7 +258,9 @@ function _syncXhrPost(url, body) {
   try {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url, false); // false = synchronous
-    xhr.setRequestHeader('Content-Type', 'application/json');
+    // text/plain skips the CORS preflight (see _handleUnload) — a preflight
+    // cannot complete during page teardown.
+    xhr.setRequestHeader('Content-Type', 'text/plain');
     xhr.send(body);
   } catch {
     // Nothing we can do during page teardown.
@@ -251,14 +277,22 @@ function _handleUnload() {
   });
   const url = _config.ingestUrl;
 
+  // text/plain, NOT application/json: a beacon with a non-safelisted content
+  // type requires a CORS preflight, which cannot happen during page teardown —
+  // the beacon silently never arrives and every event from the page is lost.
+  // The Edge Function parses the body regardless of content type.
   if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-    const blob = new Blob([body], { type: 'application/json' });
+    const blob = new Blob([body], { type: 'text/plain' });
     const queued = navigator.sendBeacon(url, blob);
     if (!queued) _syncXhrPost(url, body);
   } else {
     _syncXhrPost(url, body);
   }
 
+  // In-memory buffer dies with the page; the persisted copy in sessionStorage
+  // is deliberately left intact so the next page re-flushes it in case the
+  // beacon was dropped. Server-side dedupe (client_event_id) makes the
+  // double-delivery harmless.
   _eventBuffer = [];
 }
 
