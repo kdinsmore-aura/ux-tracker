@@ -992,6 +992,74 @@ label {
 .jl-dot.drop { background: var(--danger-bg); border: 2px solid var(--danger); }
 .jl-hint { margin-left: auto; font-style: italic; }
 
+/* ── Aggregate participant journeys (Path Analysis) ─────────────────────────── */
+
+.flow-journeys { margin-top: 28px; }
+
+.flow-controls { display: flex; gap: 6px; }
+
+.flow-sub {
+  font-size: 12px;
+  color: var(--text-2);
+  margin: 6px 0 12px;
+  max-width: 720px;
+}
+
+.flow-sel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.flow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border-2);
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.flow-chip .flow-swatch { opacity: .35; }
+.flow-chip.on {
+  border-color: var(--border-2);
+  background: var(--subtle);
+  color: var(--text);
+}
+.flow-chip.on .flow-swatch { opacity: 1; }
+.flow-chip:hover { border-color: #2563EB; }
+
+.flow-swatch {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.flow-chip-status { font-size: 10px; color: var(--text-3); }
+
+/* Ride lines: one per participant, translucent so overlaps read as density */
+.jy-ride {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: .72;
+}
+
+/* Count inside a shared off-path dot */
+.jy-cl-count {
+  font-size: 9.5px;
+  font-weight: 700;
+  fill: #92400E;
+  pointer-events: none;
+}
+
 /* Tooltip portal (shared by journey hover) */
 .timeline-tooltip {
   position: fixed;

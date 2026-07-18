@@ -137,6 +137,11 @@ function dashboardApp() {
     journeyVert: false,    // subway map orientation (persisted)
     drawerW: null,         // researcher-dragged drawer width in px (persisted)
 
+    // ── Aggregate journeys (Path Analysis) ────────────────────────────────
+    flow: { loading: false, loaded: false, error: '', bySession: {} },
+    flowSel: [],           // selected session ids
+    flowPopout: null,      // detail card for the clicked aggregate node
+
     // ── Chart instances ────────────────────────────────────────────────────
     _taskChart: null,
     _durationChart: null,
@@ -292,6 +297,7 @@ function dashboardApp() {
       if (id === 'overview' && !this.overview.loaded) this.loadOverview();
       if (id === 'heatmaps' && !this.screens.loaded) this.loadScreens();
       if (id === 'paths' && !this.paths.loaded) this.loadPaths();
+      if (id === 'paths' && !this.flow.loaded) this.loadFlowJourneys();
       if (id === 'participants' && !this.participants.loaded) this.loadParticipants();
     },
 
@@ -1016,11 +1022,13 @@ function dashboardApp() {
     // session outcome. Slots give every node a sequential x position so long
     // journeys spread out instead of clumping (the container scrolls).
     get journey() {
+      return this._journeyModel(this.drawerSession, this.drawerEvents);
+    },
+
+    _journeyModel(s, evs) {
       const empty = { slots: [], stations: [], outcome: null, summary: '', devCount: 0 };
-      const s = this.drawerSession;
       const path = this.study?.ideal_path || [];
       if (!s || path.length === 0) return empty;
-      const evs = this.drawerEvents;
 
       // Screen-level screenshot fallback (per-step captures can die when the
       // click navigates; the screen capture of the same page fills in).
@@ -1281,6 +1289,309 @@ function dashboardApp() {
     toggleJourneyVert() {
       this.journeyVert = !this.journeyVert;
       try { localStorage.setItem('uxt_dash_journey_vert', this.journeyVert ? '1' : '0'); } catch {}
+    },
+
+    // ── Aggregate participant journeys (Path Analysis section) ──────────────
+    // Overlays every selected participant's ride on the recorded line. Off-path
+    // points that multiple participants share collapse into one dot sized by
+    // how many took it — common deviations stand out at a glance.
+
+    _FLOW_COLORS: ['#2563EB', '#DB2777', '#059669', '#D97706', '#7C3AED',
+                   '#DC2626', '#0891B2', '#65A30D', '#C026D3', '#EA580C'],
+
+    flowColor(i) { return this._FLOW_COLORS[i % this._FLOW_COLORS.length]; },
+
+    get flowSessions() { return this.sessions.list || []; },
+
+    async loadFlowJourneys() {
+      if (this.flow.loaded || this.flow.loading) return;
+      this.flow.loading = true;
+      this.flow.error = '';
+      try {
+        await this.loadSessions();
+        this.loadScreens().catch(() => {});
+        const ids = (this.sessions.list || []).map((s) => s.id);
+        if (ids.length > 0) {
+          const { data, error } = await this._db
+            .from('events')
+            .select('session_id, event_type, step_index, screen_id, element_selector, element_text, element_tag, is_mis_click, advances_step, ms_since_session_start')
+            .in('session_id', ids)
+            .order('ms_since_session_start', { ascending: true });
+          if (error) throw error;
+          const by = {};
+          (data || []).forEach((e) => { (by[e.session_id] ??= []).push(e); });
+          this.flow.bySession = by;
+        }
+        this.flowSel = ids;
+        this.flow.loaded = true;
+      } catch (e) {
+        this.flow.error = `Failed to load journeys: ${e.message}`;
+      } finally {
+        this.flow.loading = false;
+      }
+    },
+
+    flowToggle(id) {
+      this.flowSel = this.flowSel.includes(id)
+        ? this.flowSel.filter((x) => x !== id)
+        : [...this.flowSel, id];
+      this.flowPopout = null;
+    },
+
+    flowSelAll()  { this.flowSel = (this.sessions.list || []).map((s) => s.id); this.flowPopout = null; },
+    flowSelNone() { this.flowSel = []; this.flowPopout = null; },
+    flowSelOnly(id) { this.flowSel = [id]; this.flowPopout = null; },
+
+    // Aggregate model: shared stations, deviation clusters (same element or
+    // same off-route screen, after the same station), terminal clusters, and
+    // one ride (node sequence) per selected session.
+    get flowAgg() {
+      const empty = { slots: [], rides: [], total: 0 };
+      if (!this.flow.loaded) return empty;
+      const sessions = (this.sessions.list || []).filter((s) => this.flowSel.includes(s.id));
+      if (sessions.length === 0) return empty;
+
+      const models = sessions.map((s, i) => ({
+        session: s,
+        color: this.flowColor((this.sessions.list || []).findIndex((x) => x.id === s.id)),
+        model: this._journeyModel(s, this.flow.bySession[s.id] || []),
+      })).filter((m) => m.model.slots.length > 0);
+      if (models.length === 0) return empty;
+
+      // Shared stations from the first model (same recorded path for all);
+      // collect who reached each.
+      const base = models[0].model.stations;
+      const stations = base.map((st) => ({ ...st, reachedBy: [] }));
+      models.forEach(({ session, color, model }) => {
+        model.stations.forEach((st, i) => {
+          if (st.reached && stations[i]) {
+            stations[i].reachedBy.push({
+              label: session.participant_label || session.id.slice(0, 6),
+              ms: st.ms, color,
+            });
+          }
+        });
+      });
+
+      // Deviation clusters + terminal clusters
+      const clusters = new Map();
+      const terms = new Map();
+      models.forEach(({ session, color, model }) => {
+        const label = session.participant_label || session.id.slice(0, 6);
+        model.slots.forEach((sl) => {
+          if (sl.type === 'dev') {
+            const d = sl.dev;
+            const key = `${d.afterStation}|${d.kind}|${d.kind === 'click' ? (d.selector || d.text) : d.screenId}`;
+            if (!clusters.has(key)) {
+              clusters.set(key, { key, si: d.afterStation, kind: d.kind,
+                text: d.text, selector: d.selector, tag: d.tag,
+                screenId: d.screenId, hits: [], minMs: d.ms ?? 0 });
+            }
+            const c = clusters.get(key);
+            c.hits.push({ label, ms: d.ms, color, sessionId: session.id });
+            c.minMs = Math.min(c.minMs, d.ms ?? 0);
+          } else if (sl.type === 'terminal') {
+            const key = `${sl.si}|${sl.outcome.kind}`;
+            if (!terms.has(key)) {
+              terms.set(key, { key, si: sl.si, outcome: sl.outcome, hits: [] });
+            }
+            terms.get(key).hits.push({ label, color, sessionId: session.id });
+          }
+        });
+      });
+
+      // Slots: station, then its clusters (by first occurrence), then its
+      // terminal clusters.
+      const slots = [];
+      const slotOfStation = {};
+      const slotOfKey = {};
+      stations.forEach((st, i) => {
+        slotOfStation[i] = slots.length;
+        slots.push({ type: 'station', station: st, si: i });
+        [...clusters.values()].filter((c) => c.si === i)
+          .sort((a, b) => a.minMs - b.minMs)
+          .forEach((c) => { slotOfKey[c.key] = slots.length; slots.push({ type: 'cluster', cluster: c, si: i }); });
+        [...terms.values()].filter((t) => t.si === i)
+          .forEach((t) => { slotOfKey[t.key] = slots.length; slots.push({ type: 'term', term: t, si: i }); });
+      });
+
+      // Rides: each session's node sequence mapped to aggregate slots.
+      const rides = models.map(({ session, color, model }) => {
+        const pts = [];
+        model.slots.forEach((sl) => {
+          if (sl.type === 'station' && sl.station.reached) {
+            const idx = model.stations.indexOf(sl.station);
+            pts.push({ slot: slotOfStation[idx], lane: 'main' });
+          } else if (sl.type === 'dev') {
+            const d = sl.dev;
+            const key = `${d.afterStation}|${d.kind}|${d.kind === 'click' ? (d.selector || d.text) : d.screenId}`;
+            if (slotOfKey[key] != null) pts.push({ slot: slotOfKey[key], lane: 'branch' });
+          } else if (sl.type === 'terminal') {
+            const key = `${sl.si}|${sl.outcome.kind}`;
+            if (slotOfKey[key] != null) pts.push({ slot: slotOfKey[key], lane: 'branch' });
+          }
+        });
+        return { color, pts, id: session.id };
+      });
+
+      return { slots, rides, total: models.length };
+    },
+
+    get flowSvg() {
+      const F = this.flowAgg;
+      if (!F.slots.length) return '';
+      const SP = 92, M = 70, yMain = 64, yDev = 138, H = 196;
+      const X = (i) => M + i * SP;
+      const W = M * 2 + (F.slots.length - 1) * SP;
+      const sel = this.flowPopout?.nodeId;
+      const esc = (v) => this._escXml(v);
+      const out = [];
+
+      const stationSlots = F.slots.map((sl, i) => (sl.type === 'station' ? i : null)).filter((v) => v !== null);
+      if (stationSlots.length > 1) {
+        out.push(`<line x1="${X(stationSlots[0])}" y1="${yMain}" x2="${X(stationSlots[stationSlots.length - 1])}" y2="${yMain}" class="jy-main"/>`);
+      }
+
+      // Rides (behind nodes). Straight main-line segments dip through the
+      // branch lane only when they skip an intermediate STATION slot.
+      F.rides.forEach((ride, ri) => {
+        if (ride.pts.length < 2) return;
+        const jitter = ((ri % 5) - 2) * 2.4;
+        const yOf = (p) => (p.lane === 'main' ? yMain + jitter : yDev);
+        let d = `M ${X(ride.pts[0].slot)} ${yOf(ride.pts[0])}`;
+        for (let i = 1; i < ride.pts.length; i++) {
+          const a = ride.pts[i - 1], b = ride.pts[i];
+          const ax = X(a.slot), bx = X(b.slot);
+          const ay = yOf(a), by = yOf(b);
+          const skipsStation = a.lane === 'main' && b.lane === 'main' &&
+            F.slots.some((sl, si) => sl.type === 'station' &&
+              si > Math.min(a.slot, b.slot) && si < Math.max(a.slot, b.slot));
+          if (skipsStation) {
+            d += ` C ${ax + 40} ${yDev} ${bx - 40} ${yDev} ${bx} ${by}`;
+          } else if (ay === by) {
+            d += ` L ${bx} ${by}`;
+          } else {
+            const mx = (ax + bx) / 2;
+            d += ` C ${mx} ${ay} ${mx} ${by} ${bx} ${by}`;
+          }
+        }
+        out.push(`<path d="${d}" class="jy-ride" style="stroke:${ride.color}"/>`);
+      });
+
+      // Nodes
+      F.slots.forEach((sl, i) => {
+        const x = X(i);
+        const selCls = sel === i ? ' selected' : '';
+        if (sl.type === 'station') {
+          const st = sl.station;
+          const n = st.reachedBy.length;
+          out.push(`<circle data-node="${i}" cx="${x}" cy="${yMain}" r="11" class="jy-station ${st.kind}${n > 0 ? ' reached' : ''}${selCls}"/>`);
+          if (st.kind === 'step') {
+            out.push(`<text x="${x}" y="${yMain + 4}" class="jy-num" text-anchor="middle">${st.label}</text>`);
+          } else {
+            out.push(`<text x="${x}" y="${yMain - 20}" class="jy-cap" text-anchor="middle">${st.kind === 'start' ? 'START' : '🏁 END'}</text>`);
+          }
+          out.push(`<text x="${x}" y="${yMain + 32}" class="jy-screen" text-anchor="middle">${n}/${F.total}</text>`);
+        } else if (sl.type === 'cluster') {
+          const c = sl.cluster;
+          const r = Math.min(13, 6.5 + c.hits.length * 1.4);
+          out.push(`<circle data-node="${i}" cx="${x}" cy="${yDev}" r="${r}" class="jy-dev ${c.kind}${selCls}"/>`);
+          if (c.hits.length > 1) {
+            out.push(`<text x="${x}" y="${yDev + 3.5}" class="jy-cl-count" text-anchor="middle">${c.hits.length}</text>`);
+          }
+        } else {
+          const t = sl.term;
+          const k = t.outcome.kind;
+          const cls = k === 'dropped' ? 'drop' : (k === 'in_progress' ? 'progress' : 'done');
+          out.push(`<circle data-node="${i}" cx="${x}" cy="${yDev}" r="10" class="jy-terminal ${cls}${selCls}"/>`);
+          const glyph = k === 'dropped' ? '✕' : (k === 'in_progress' ? '…' : '✓');
+          out.push(`<text x="${x}" y="${yDev + 4}" class="jy-term-glyph" text-anchor="middle">${glyph}${t.hits.length > 1 ? '×' + t.hits.length : ''}</text>`);
+        }
+      });
+
+      return `<svg class="jy-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${out.join('')}</svg>`;
+    },
+
+    _flowNodeDetail(idx) {
+      const sl = this.flowAgg.slots[idx];
+      if (!sl) return null;
+      const who = (hits) => hits.map((h) => h.ms != null ? `${h.label} (${this.fmtMs(h.ms)})` : h.label).join(',  ');
+      if (sl.type === 'station') {
+        const st = sl.station;
+        const rows = [['Screen', st.screenId]];
+        if (st.kind === 'step') {
+          rows.push(['Recorded click', st.elementText || '(no text)']);
+          if (st.selector) rows.push(['Selector', st.selector]);
+        }
+        rows.push(['Reached by', `${st.reachedBy.length} of ${this.flowAgg.total} selected`]);
+        if (st.reachedBy.length) rows.push(['Participants', who(st.reachedBy)]);
+        return {
+          nodeId: idx,
+          title: st.kind === 'step' ? `Step ${st.label} — recorded path`
+               : (st.kind === 'start' ? 'Session start' : 'End screen'),
+          shot: st.shot, rows,
+        };
+      }
+      if (sl.type === 'cluster') {
+        const c = sl.cluster;
+        const rows = c.kind === 'click'
+          ? [
+              ['Clicked', c.text || '(no visible text)'],
+              ['Selector', c.selector || '—'],
+              ['Element', c.tag ? `<${String(c.tag).toLowerCase()}>` : '—'],
+              ['On screen', c.screenId],
+            ]
+          : [['Went to', c.screenId]];
+        rows.push(['Taken by', `${c.hits.length} participant${c.hits.length !== 1 ? 's' : ''}`]);
+        rows.push(['Participants', who(c.hits)]);
+        return {
+          nodeId: idx,
+          title: (c.kind === 'click' ? 'Off-path click' : 'Off-route page') +
+                 (c.hits.length > 1 ? ` — shared by ${c.hits.length}` : ''),
+          shot: null, rows,
+        };
+      }
+      const t = sl.term;
+      return {
+        nodeId: idx,
+        title: t.outcome.label,
+        shot: null,
+        rows: [
+          ['Participants', who(t.hits)],
+          ['Count', String(t.hits.length)],
+        ],
+      };
+    },
+
+    flowClick(e) {
+      const n = e.target.closest('[data-node]');
+      if (!n) { this.flowPopout = null; return; }
+      const idx = Number(n.getAttribute('data-node'));
+      this.flowPopout = this.flowPopout?.nodeId === idx ? null : this._flowNodeDetail(idx);
+    },
+
+    flowHover(e) {
+      const n = e.target.closest('[data-node]');
+      const tip = document.getElementById('timelineTooltip');
+      if (!n || !tip) return;
+      const sl = this.flowAgg.slots[Number(n.getAttribute('data-node'))];
+      if (!sl) return;
+      let label;
+      if (sl.type === 'station') {
+        const st = sl.station;
+        label = (st.kind === 'step' ? `Step ${st.label}` : (st.kind === 'start' ? 'Start' : 'End screen'))
+          + ` · ${st.reachedBy.length}/${this.flowAgg.total} reached`;
+      } else if (sl.type === 'cluster') {
+        const c = sl.cluster;
+        label = `⚠ ${c.kind === 'click' ? `clicked “${(c.text || c.selector || '?').slice(0, 36)}”` : `went to ${c.screenId}`} · ${c.hits.length}×`;
+      } else {
+        label = `${sl.term.outcome.label} · ${sl.term.hits.length}×`;
+      }
+      tip.textContent = label + '  ·  click for details';
+      tip.style.display = 'block';
+      const half = Math.min(140, tip.offsetWidth / 2 || 140);
+      tip.style.left = Math.min(window.innerWidth - half - 8, Math.max(half + 8, e.clientX)) + 'px';
+      tip.style.top = (e.clientY - 36) + 'px';
     },
 
     // Drag the drawer's left edge to resize; the width persists.

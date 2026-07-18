@@ -543,6 +543,91 @@
                 <div id="flowDiagramWrap"></div>
               </div>
 
+              <!-- Aggregate participant journeys -->
+              <div class="flow-journeys">
+                <div class="journey-head">
+                  <div class="flow-title" style="margin-bottom:0">Participant Journeys</div>
+                  <div class="flow-controls" x-show="flow.loaded && flowSessions.length > 0">
+                    <button class="btn btn-secondary btn-sm" @click="flowSelAll()">All</button>
+                    <button class="btn btn-secondary btn-sm" @click="flowSelNone()">None</button>
+                  </div>
+                </div>
+                <p class="flow-sub">
+                  Every selected participant's ride over the recorded line. Off-path
+                  points shared by several participants merge into one dot and grow
+                  with the count — the common deviations stand out. Click a
+                  participant chip to toggle them; double-click to isolate one.
+                </p>
+
+                <div class="loading-row" x-show="flow.loading">
+                  <div class="spinner"></div><span>Loading journeys…</span>
+                </div>
+                <div class="error-state" x-show="flow.error && !flow.loading">
+                  <p x-text="flow.error"></p>
+                  <button class="btn btn-secondary btn-sm"
+                          @click="flow.loaded = false; flow.error = ''; loadFlowJourneys()">Retry</button>
+                </div>
+                <div class="msg msg-info" x-show="flow.loaded && flowSessions.length === 0"
+                     style="margin-bottom:0">No sessions yet.</div>
+
+                <template x-if="flow.loaded && flowSessions.length > 0">
+                  <div>
+                    <div class="flow-sel">
+                      <template x-for="(fs, i) in flowSessions" :key="fs.id">
+                        <button class="flow-chip"
+                                :class="{ on: flowSel.includes(fs.id) }"
+                                @click="flowToggle(fs.id)"
+                                @dblclick.prevent="flowSelOnly(fs.id)"
+                                :title="fs.status + (fs.completed_via ? ' · ' + completedViaLabel(fs.completed_via) : '')">
+                          <span class="flow-swatch" :style="'background:' + flowColor(i)"></span>
+                          <span x-text="fs.participant_label || fs.id.slice(0, 6)"></span>
+                          <span class="flow-chip-status"
+                                x-text="fs.status === 'completed' ? '✓' : (fs.status === 'abandoned' ? '✕' : '…')"></span>
+                        </button>
+                      </template>
+                    </div>
+
+                    <div class="msg msg-info" x-show="flowSel.length === 0" style="margin-bottom:0">
+                      Select at least one participant to draw their journey.
+                    </div>
+
+                    <div class="journey-scroll" x-show="flowSel.length > 0"
+                         @click="flowClick($event)"
+                         @mouseover="flowHover($event)"
+                         @mouseout="hideTooltip()">
+                      <div class="journey-inner" x-html="flowSvg"></div>
+                    </div>
+
+                    <div class="journey-popout" x-show="flowPopout" x-cloak>
+                      <div class="journey-popout-head">
+                        <span class="journey-popout-title" x-text="flowPopout?.title"></span>
+                        <button class="drawer-close" @click="flowPopout = null">✕</button>
+                      </div>
+                      <img class="journey-popout-shot"
+                           x-show="flowPopout?.shot"
+                           :src="flowPopout?.shot || ''"
+                           alt="Step screenshot">
+                      <div class="journey-popout-rows">
+                        <template x-for="(row, i) in (flowPopout?.rows || [])" :key="i">
+                          <div class="journey-popout-row">
+                            <span class="jp-k" x-text="row[0]"></span>
+                            <span class="jp-v" x-text="row[1]"></span>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+
+                    <div class="journey-legend" x-show="flowSel.length > 0">
+                      <span class="jl-item"><span class="jl-line main"></span> recorded path</span>
+                      <span class="jl-item"><span class="jl-dot dev"></span> off-path point (size = participants)</span>
+                      <span class="jl-item"><span class="jl-dot drop"></span> drop-off</span>
+                      <span class="jl-item">n/N under a station = how many reached it</span>
+                      <span class="jl-item jl-hint">click any point for details</span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
             </div>
           </template>
 
