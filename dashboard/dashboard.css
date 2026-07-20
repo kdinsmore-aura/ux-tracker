@@ -894,8 +894,9 @@ label {
 .jy-station.end.reached { fill: #D1FAE5; }
 .jy-station.selected,
 .jy-dev.selected,
+.jy-survey.selected,
 .jy-terminal.selected { stroke-width: 4; filter: drop-shadow(0 0 3px rgba(37,99,235,.7)); }
-.jy-station:hover, .jy-dev:hover, .jy-terminal:hover { filter: drop-shadow(0 0 3px rgba(37,99,235,.5)); }
+.jy-station:hover, .jy-dev:hover, .jy-survey:hover, .jy-terminal:hover { filter: drop-shadow(0 0 3px rgba(37,99,235,.5)); cursor: pointer; }
 
 /* Participant's ride */
 .jy-journey {
@@ -909,6 +910,11 @@ label {
 /* Off-path points (branch lane) */
 .jy-dev { fill: var(--warn-bg); stroke: var(--warn); stroke-width: 2.5; }
 .jy-dev.screen { fill: var(--warn); }
+
+/* Survey / feedback markers (branch lane) */
+.jy-survey { fill: #6366F1; stroke: #4338CA; stroke-width: 2; }
+.jy-survey.end { fill: #4338CA; }
+.jy-survey-glyph { font-size: 10px; font-weight: 700; fill: #fff; pointer-events: none; }
 
 /* Terminal markers */
 .jy-terminal.drop     { fill: var(--danger-bg); stroke: var(--danger); stroke-width: 3; }
@@ -989,8 +995,39 @@ label {
 .jl-line.journey { background: #10B981; }
 .jl-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .jl-dot.dev  { background: var(--warn-bg); border: 2px solid var(--warn); }
+.jl-dot.survey { background: #6366F1; border: 2px solid #4338CA; }
 .jl-dot.drop { background: var(--danger-bg); border: 2px solid var(--danger); }
 .jl-hint { margin-left: auto; font-style: italic; }
+
+/* Overview — survey & feedback responses */
+.feedback-groups { display: flex; flex-direction: column; gap: 16px; }
+.feedback-group {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  background: var(--surface);
+}
+.fg-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; margin-bottom: 6px;
+}
+.fg-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.fg-meta  { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
+.fg-rating { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.fg-stars { color: #F59E0B; font-size: 15px; letter-spacing: 1px; }
+.fg-avg   { font-size: 12px; color: var(--text-2); }
+.fg-comments { display: flex; flex-direction: column; gap: 8px; }
+.fg-comment {
+  border-left: 3px solid #C7D2FE;
+  padding: 4px 0 4px 10px;
+}
+.fg-quote { font-size: 13px; color: var(--text); line-height: 1.45; }
+.fg-who {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-3); margin-top: 3px;
+}
+.fg-crate { color: #F59E0B; letter-spacing: .5px; }
+.fg-empty { font-size: 12px; color: var(--text-3); font-style: italic; }
 
 /* ── Aggregate participant journeys (Path Analysis) ─────────────────────────── */
 

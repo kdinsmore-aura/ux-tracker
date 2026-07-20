@@ -73,6 +73,7 @@ function dashboardApp() {
       },
       taskRates: [],
       durationSeries: [],
+      feedback: [],   // survey + end-of-study responses, grouped for surfacing
     },
 
     // ── Sessions ───────────────────────────────────────────────────────────
@@ -537,6 +538,9 @@ function dashboardApp() {
         // Task completion rates
         await this._loadTaskRates();
 
+        // Survey + end-of-study feedback, grouped for the responses panel
+        this._computeFeedback();
+
         this.overview.loaded = true;
 
         this.$nextTick(() => {
@@ -590,6 +594,84 @@ function dashboardApp() {
           pct: Math.round((completed.size / totalSessions) * 100),
         };
       });
+    },
+
+    // Aggregate every survey response and the end-of-study feedback across all
+    // sessions into display groups — one per defined survey, plus one for the
+    // completion feedback. Empty groups (no responses yet) are dropped.
+    _computeFeedback() {
+      const sessions = this.sessions.list || [];
+      const who = (s) => s.participant_label || (s.participant_id ? s.participant_id.slice(0, 8) : 'Participant');
+      const groups = [];
+
+      (this.study?.surveys || []).forEach((sv) => {
+        if (!sv || !sv.id) return;
+        const responses = [];
+        sessions.forEach((s) => {
+          (Array.isArray(s.survey_responses) ? s.survey_responses : []).forEach((r) => {
+            if (r.surveyId === sv.id) responses.push({ ...r, who: who(s) });
+          });
+        });
+        if (responses.length) {
+          groups.push(this._feedbackGroup(this._surveyTriggerLabel(sv.trigger, null), sv, responses));
+        }
+      });
+
+      // Orphan responses: answered under a surveyId no longer in study.surveys
+      // (the survey was renamed or removed after sessions ran). They still
+      // count — group them by surveyId so collected feedback is never silently
+      // dropped from the panel (the per-session journey shows them regardless).
+      const knownIds = new Set((this.study?.surveys || []).map((sv) => sv && sv.id).filter(Boolean));
+      const orphansById = {};
+      sessions.forEach((s) => {
+        (Array.isArray(s.survey_responses) ? s.survey_responses : []).forEach((r) => {
+          if (r.surveyId && !knownIds.has(r.surveyId)) {
+            if (!orphansById[r.surveyId]) orphansById[r.surveyId] = [];
+            orphansById[r.surveyId].push({ ...r, who: who(s) });
+          }
+        });
+      });
+      Object.values(orphansById).forEach((responses) => {
+        const trig = responses.find((r) => r.trigger)?.trigger || null;
+        const title = `${this._surveyTriggerLabel(trig, responses[0])} (removed survey)`;
+        groups.push(this._feedbackGroup(title, null, responses));
+      });
+
+      const endResponses = [];
+      sessions.forEach((s) => {
+        const fb = s.feedback;
+        if (fb && (fb.rating != null || (fb.comment && String(fb.comment).trim()))) {
+          endResponses.push({ rating: fb.rating, comment: fb.comment, who: who(s) });
+        }
+      });
+      if (endResponses.length) {
+        const comp = this.study?.completion || {};
+        groups.push(this._feedbackGroup('End-of-study feedback',
+          { rating: comp.rating, comment: comp.comment }, endResponses));
+      }
+
+      this.overview.feedback = groups;
+    },
+
+    _feedbackGroup(title, def, responses) {
+      const rated = responses.filter((r) => r.rating != null && !r.skipped);
+      const avgNum = rated.length
+        ? rated.reduce((a, r) => a + Number(r.rating), 0) / rated.length
+        : null;
+      const comments = responses
+        .filter((r) => !r.skipped && r.comment && String(r.comment).trim())
+        .map((r) => ({ who: r.who, text: String(r.comment).trim(), rating: r.rating ?? null }));
+      return {
+        title,
+        ratingPrompt:  (def?.rating?.prompt || '').trim(),
+        commentPrompt: (def?.comment?.prompt || '').trim(),
+        count:         responses.length,
+        ratedCount:    rated.length,
+        avg:           avgNum != null ? avgNum.toFixed(1) : null,
+        avgStars:      avgNum != null ? this.stars(avgNum) : '',
+        skipped:       responses.filter((r) => r.skipped).length,
+        comments,
+      };
     },
 
     _renderTaskChart() {
@@ -1231,7 +1313,34 @@ function dashboardApp() {
       // station the participant was at when they veered.
       let pos = 0;                                   // index into stations
       const devAfter = stations.map(() => []);
+
+      // Mid-study survey responses live on the session row (not the event
+      // stream), so fold them into the branch lane by time: each one hangs off
+      // the recorded step the participant had most recently matched when they
+      // answered. Sorted by time so they interleave with deviations in order.
+      const surveyDefs = {};
+      (this.study?.surveys || []).forEach((sv) => { if (sv && sv.id) surveyDefs[sv.id] = sv; });
+      const surveyMarkers = (Array.isArray(s.survey_responses) ? s.survey_responses : [])
+        .map((r) => ({
+          kind:     'survey',
+          ms:       r.msSinceSessionStart ?? null,
+          screenId: this._normScreen(r.screenId),
+          response: r,
+          def:      surveyDefs[r.surveyId] || null,
+          trigger:  r.trigger || surveyDefs[r.surveyId]?.trigger || null,
+        }))
+        .sort((a, b) => (a.ms ?? 0) - (b.ms ?? 0));
+      let svIdx = 0;
+      const flushSurveys = (uptoMs) => {
+        while (svIdx < surveyMarkers.length && (surveyMarkers[svIdx].ms ?? 0) <= uptoMs) {
+          const mk = surveyMarkers[svIdx++];
+          mk.afterStation = pos;
+          devAfter[pos].push(mk);
+        }
+      };
+
       for (const e of evs) {
+        flushSurveys(e.ms_since_session_start ?? 0);
         if (e.event_type === 'click') {
           const st = stations[1 + (e.step_index ?? -99)];
           if (e.advances_step && st && st.kind === 'step') {
@@ -1261,6 +1370,7 @@ function dashboardApp() {
           }
         }
       }
+      flushSurveys(Infinity);   // any responses after the last event → final position
 
       // End station: reached when the session completed and the participant
       // actually got there (any event on it, or end-screen completion).
@@ -1315,13 +1425,25 @@ function dashboardApp() {
         slots.splice(at + 1, 0, { type: 'terminal', outcome, si: pos });
       }
 
-      const devCount = devAfter.reduce((n, l) => n + l.length, 0);
+      // End-of-study feedback (the completion-screen rating/comment) closes the
+      // journey — a clickable marker after the terminal, shown when answered.
+      const fb = s.feedback;
+      if (fb && (fb.rating != null || (fb.comment && String(fb.comment).trim()))) {
+        slots.push({ type: 'endfb', feedback: fb, si: stations.length - 1 });
+      }
+
+      const devCount = devAfter.reduce((n, l) =>
+        n + l.filter((d) => d.kind !== 'survey').length, 0);
+      const surveyCount = surveyMarkers.length;
       const reachedSteps = stations.filter((st) => st.kind === 'step' && st.reached).length;
       const parts = [outcome.label];
       if (s.duration_ms != null) parts.push(this.fmtDuration(s.duration_ms));
       parts.push(`${reachedSteps}/${path.length} recorded steps matched`);
       parts.push(devCount === 0 ? 'no off-path points' :
         `${devCount} off-path point${devCount !== 1 ? 's' : ''}`);
+      if (surveyCount > 0) {
+        parts.push(`${surveyCount} survey response${surveyCount !== 1 ? 's' : ''}`);
+      }
 
       return { slots, stations, outcome, devCount, summary: parts.join(' · ') };
     },
@@ -1376,10 +1498,13 @@ function dashboardApp() {
       // Participant line: reached stations on the main line, deviations and
       // terminals in the branch lane. Long main-line jumps (skipped stations)
       // dip through the branch lane so hollow stations aren't implied.
+      // Survey markers and the end-feedback marker are annotations, not ride
+      // points — they never join the participant line.
       const pts = [];
       J.slots.forEach((sl, i) => {
-        if (sl.type === 'station' && sl.station.reached) pts.push({ a: A(i), lane: mainL });
-        else if (sl.type === 'dev' || sl.type === 'terminal') pts.push({ a: A(i), lane: devL });
+        if (sl.type === 'station' && sl.station.reached) pts.push({ a: A(i), lane: mainL, si: i });
+        else if (sl.type === 'terminal') pts.push({ a: A(i), lane: devL, si: i });
+        else if (sl.type === 'dev' && sl.dev.kind !== 'survey') pts.push({ a: A(i), lane: devL, si: i });
       });
       if (pts.length > 1) {
         const m0 = P(pts[0].a, pts[0].lane);
@@ -1387,7 +1512,14 @@ function dashboardApp() {
         for (let i = 1; i < pts.length; i++) {
           const a = pts[i - 1], b = pts[i];
           const B = P(b.a, b.lane);
-          if (a.lane === b.lane && a.lane === mainL && b.a - a.a > SP * 1.5) {
+          // Dip through the branch lane only when a genuinely skipped (hollow,
+          // unreached) station sits between the two points — NOT merely because
+          // they're far apart. Survey/feedback slots widen the raw gap without
+          // implying a skip, so measure by structure, not pixel distance.
+          const hollowBetween = J.slots
+            .slice(a.si + 1, b.si)
+            .some((s) => s.type === 'station' && !s.station.reached);
+          if (a.lane === b.lane && a.lane === mainL && hollowBetween) {
             const c1 = P(a.a + 40, devL), c2 = P(b.a - 40, devL);
             d += ` C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${B.x} ${B.y}`;
           } else if (a.lane === b.lane) {
@@ -1423,13 +1555,28 @@ function dashboardApp() {
             : `<text x="${c.x}" y="${mainL + (i % 2 === 0 ? 32 : 46)}" class="jy-screen" text-anchor="middle">${scr}</text>`);
         } else if (sl.type === 'dev') {
           const c = P(a, devL);
-          out.push(`<circle data-node="${i}" cx="${c.x}" cy="${c.y}" r="7" class="jy-dev ${sl.dev.kind}${selCls}"/>`);
-          if (sl.dev.kind === 'screen') {
-            const scr = esc(this._shortScreen(sl.dev.screenId));
+          if (sl.dev.kind === 'survey') {
+            out.push(`<circle data-node="${i}" cx="${c.x}" cy="${c.y}" r="9" class="jy-survey${selCls}"/>`);
+            out.push(`<text x="${c.x}" y="${c.y + 3}" class="jy-survey-glyph" text-anchor="middle">★</text>`);
             out.push(vert
-              ? `<text x="${devL + 14}" y="${a + 4}" class="jy-screen" text-anchor="start">${scr}</text>`
-              : `<text x="${c.x}" y="${devL + 22}" class="jy-screen" text-anchor="middle">${scr}</text>`);
+              ? `<text x="${devL + 16}" y="${a + 4}" class="jy-screen" text-anchor="start">survey</text>`
+              : `<text x="${c.x}" y="${devL + 22}" class="jy-screen" text-anchor="middle">survey</text>`);
+          } else {
+            out.push(`<circle data-node="${i}" cx="${c.x}" cy="${c.y}" r="7" class="jy-dev ${sl.dev.kind}${selCls}"/>`);
+            if (sl.dev.kind === 'screen') {
+              const scr = esc(this._shortScreen(sl.dev.screenId));
+              out.push(vert
+                ? `<text x="${devL + 14}" y="${a + 4}" class="jy-screen" text-anchor="start">${scr}</text>`
+                : `<text x="${c.x}" y="${devL + 22}" class="jy-screen" text-anchor="middle">${scr}</text>`);
+            }
           }
+        } else if (sl.type === 'endfb') {
+          const c = P(a, devL);
+          out.push(`<circle data-node="${i}" cx="${c.x}" cy="${c.y}" r="10" class="jy-survey end${selCls}"/>`);
+          out.push(`<text x="${c.x}" y="${c.y + 3}" class="jy-survey-glyph" text-anchor="middle">★</text>`);
+          out.push(vert
+            ? `<text x="${devL + 16}" y="${a + 4}" class="jy-screen" text-anchor="start">feedback</text>`
+            : `<text x="${c.x}" y="${devL + 26}" class="jy-screen" text-anchor="middle">feedback</text>`);
         } else {
           const k = sl.outcome.kind;
           const cls = k === 'dropped' ? 'drop' : (k === 'in_progress' ? 'progress' : 'done');
@@ -1551,7 +1698,10 @@ function dashboardApp() {
       models.forEach(({ session, color, model }) => {
         const label = session.participant_label || session.id.slice(0, 6);
         model.slots.forEach((sl) => {
-          if (sl.type === 'dev') {
+          // Survey / end-feedback markers are annotations, not off-path
+          // deviations — they must not fold into the aggregate deviation
+          // clusters (they'd otherwise render and read as off-route navigation).
+          if (sl.type === 'dev' && sl.dev.kind !== 'survey') {
             const d = sl.dev;
             const key = `${d.afterStation}|${d.kind}|${d.kind === 'click' ? (d.selector || d.text) : d.screenId}`;
             if (!clusters.has(key)) {
@@ -1594,7 +1744,7 @@ function dashboardApp() {
           if (sl.type === 'station' && sl.station.reached) {
             const idx = model.stations.indexOf(sl.station);
             pts.push({ slot: slotOfStation[idx], lane: 'main' });
-          } else if (sl.type === 'dev') {
+          } else if (sl.type === 'dev' && sl.dev.kind !== 'survey') {
             const d = sl.dev;
             const key = `${d.afterStation}|${d.kind}|${d.kind === 'click' ? (d.selector || d.text) : d.screenId}`;
             if (slotOfKey[key] != null) pts.push({ slot: slotOfKey[key], lane: 'branch' });
@@ -1816,6 +1966,72 @@ function dashboardApp() {
       document.addEventListener('mouseup', up);
     },
 
+    // ── Survey / feedback helpers ────────────────────────────────────────────
+
+    // Star string for a rating, e.g. 4 → "★★★★☆". stars() has no numeric
+    // suffix (for compact UI); _stars() appends "(n/5)" for the detail popout.
+    stars(n) {
+      const v = Math.max(0, Math.min(5, Math.round(Number(n) || 0)));
+      return '★★★★★'.slice(0, v) + '☆☆☆☆☆'.slice(0, 5 - v);
+    },
+    _stars(n) {
+      const v = Math.max(0, Math.min(5, Math.round(Number(n) || 0)));
+      return `${this.stars(n)}  ${v}/5`;
+    },
+
+    // Human-readable description of what triggered a survey.
+    _surveyTriggerLabel(trigger, response) {
+      const t = trigger || {};
+      if (t.type === 'after_task') {
+        const tasks = this.study?.tasks || [];
+        const k = tasks.findIndex((x) => x && x.id === t.taskId);
+        const task = k >= 0 ? tasks[k] : null;
+        const num = k >= 0 ? k + 1 : ((response?.taskIndex ?? -1) + 1 || null);
+        const promptTxt = task ? ` — “${String(task.prompt || '').slice(0, 40)}”` : '';
+        return num ? `After task ${num}${promptTxt}` : 'After a task';
+      }
+      if (t.type === 'screen_enter')  return `On reaching ${this._shortScreen(t.screenId)}`;
+      if (t.type === 'element_click') return `After clicking “${String(t.elementText || t.selector || 'an element').slice(0, 36)}”`;
+      return 'Survey';
+    },
+
+    // Detail popout for a mid-study survey response marker.
+    _surveyDetail(idx, d) {
+      const r    = d.response || {};
+      const def  = d.def || {};
+      const rows = [];
+      if (d.ms != null) rows.push(['When', this.fmtMs(d.ms)]);
+      rows.push(['Trigger', this._surveyTriggerLabel(d.trigger, r)]);
+      if (r.skipped) {
+        rows.push(['Response', 'Skipped by participant']);
+      } else {
+        if (r.rating != null) {
+          rows.push([(def.rating?.prompt || '').trim() || 'Rating', this._stars(r.rating)]);
+        }
+        const comment = (r.comment || '').trim();
+        if (comment) {
+          rows.push([(def.comment?.prompt || '').trim() || 'Comment', `“${comment}”`]);
+        }
+        if (r.rating == null && !comment) rows.push(['Response', '(no answer given)']);
+      }
+      return { nodeId: idx, title: '★ Survey response', shot: null, rows };
+    },
+
+    // Detail popout for the end-of-study feedback marker.
+    _endFeedbackDetail(idx, fb) {
+      const comp = this.study?.completion || {};
+      const rows = [];
+      if (fb.submittedAt) rows.push(['Submitted', this.fmtDateTime(fb.submittedAt)]);
+      if (fb.rating != null) {
+        rows.push([(comp.rating?.prompt || '').trim() || 'How would you rate your experience?', this._stars(fb.rating)]);
+      }
+      const comment = (fb.comment || '').trim();
+      if (comment) {
+        rows.push([(comp.comment?.prompt || '').trim() || "Anything else you'd like to share?", `“${comment}”`]);
+      }
+      return { nodeId: idx, title: '★ End-of-study feedback', shot: null, rows };
+    },
+
     // Popout payload for a clicked node.
     _journeyNodeDetail(idx) {
       const sl = this.journey.slots[idx];
@@ -1839,8 +2055,10 @@ function dashboardApp() {
           shot: st.shot, rows,
         };
       }
+      if (sl.type === 'endfb') return this._endFeedbackDetail(idx, sl.feedback);
       if (sl.type === 'dev') {
         const d = sl.dev;
+        if (d.kind === 'survey') return this._surveyDetail(idx, d);
         const after = this.journey.stations[d.afterStation];
         const afterLabel = after
           ? (after.kind === 'step' ? `step ${after.label} (${after.screenId})` : `${after.kind} (${after.screenId})`)
@@ -1899,9 +2117,13 @@ function dashboardApp() {
           ? `Step ${st.label} · ${st.reached ? 'reached ' + this.fmtMs(st.ms) : 'not reached'}`
           : (st.kind === 'start' ? 'Session start' : `End screen · ${st.reached ? 'reached' : 'not reached'}`);
       } else if (sl.type === 'dev') {
-        label = sl.dev.kind === 'click'
-          ? `⚠ clicked “${(sl.dev.text || sl.dev.selector || '?').slice(0, 40)}” · ${this.fmtMs(sl.dev.ms)}`
-          : `⚠ went to ${sl.dev.screenId} · ${this.fmtMs(sl.dev.ms)}`;
+        label = sl.dev.kind === 'survey'
+          ? `★ survey response · ${this.fmtMs(sl.dev.ms)}`
+          : (sl.dev.kind === 'click'
+              ? `⚠ clicked “${(sl.dev.text || sl.dev.selector || '?').slice(0, 40)}” · ${this.fmtMs(sl.dev.ms)}`
+              : `⚠ went to ${sl.dev.screenId} · ${this.fmtMs(sl.dev.ms)}`);
+      } else if (sl.type === 'endfb') {
+        label = '★ end-of-study feedback';
       } else {
         label = sl.outcome.label;
       }

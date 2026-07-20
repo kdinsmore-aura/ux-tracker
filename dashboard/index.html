@@ -229,6 +229,40 @@
                   </div>
                 </div>
               </div>
+
+              <!-- Survey & feedback responses -->
+              <div class="chart-card" style="margin-top:16px" x-show="overview.feedback.length > 0">
+                <div class="chart-title">Survey &amp; Feedback Responses</div>
+                <div class="feedback-groups">
+                  <template x-for="(g, gi) in overview.feedback" :key="gi">
+                    <div class="feedback-group">
+                      <div class="fg-head">
+                        <span class="fg-title" x-text="g.title"></span>
+                        <span class="fg-meta" x-text="g.count + ' response' + (g.count !== 1 ? 's' : '')"></span>
+                      </div>
+                      <div class="fg-rating" x-show="g.avg !== null">
+                        <span class="fg-stars" x-text="g.avgStars"></span>
+                        <span class="fg-avg"
+                              x-text="g.avg + ' avg · ' + g.ratedCount + ' rating' + (g.ratedCount !== 1 ? 's' : '')"></span>
+                      </div>
+                      <div class="fg-comments" x-show="g.comments.length > 0">
+                        <template x-for="(c, ci) in g.comments" :key="ci">
+                          <div class="fg-comment">
+                            <div class="fg-quote" x-text="'“' + c.text + '”'"></div>
+                            <div class="fg-who">
+                              <span x-show="c.rating !== null" class="fg-crate" x-text="stars(c.rating)"></span>
+                              <span x-text="c.who"></span>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                      <div class="fg-empty" x-show="g.comments.length === 0 && g.avg === null">
+                        Responses recorded — no rating or comment given.
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
             </div>
           </template>
 
@@ -917,6 +951,7 @@
               <span class="jl-item"><span class="jl-line main"></span> recorded path</span>
               <span class="jl-item"><span class="jl-line journey"></span> participant</span>
               <span class="jl-item"><span class="jl-dot dev"></span> off-path point</span>
+              <span class="jl-item"><span class="jl-dot survey"></span> survey / feedback</span>
               <span class="jl-item"><span class="jl-dot drop"></span> drop-off</span>
               <span class="jl-item jl-hint">click any point for details</span>
             </div>
