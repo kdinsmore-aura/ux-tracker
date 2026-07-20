@@ -162,6 +162,10 @@ export function getElementSelector(element) {
   const testId = element.dataset?.testid;
   if (testId) return clip(`[data-testid="${testId}"]`);
 
+  // 1.5. data-track — analytics hooks make equally stable, readable selectors.
+  const track = element.dataset?.track;
+  if (track) return clip(`[data-track="${track}"]`);
+
   // 2. Unique id.
   if (element.id) {
     try {
@@ -204,6 +208,34 @@ export function getElementSelector(element) {
 // Closed shadow DOM retargets clicks inside the panel to the host element, so tagName is enough.
 const _UXT_COMPONENTS = new Set(['uxt-recorder-panel', 'uxt-task-panel']);
 
+// Human-readable label for a clicked element. Visible text first (whitespace
+// collapsed); when there is none — or it carries no letters/digits, like an
+// emoji-only icon — fall back to the accessibility metadata a well-labeled
+// control provides: aria-label, title, image alt, then input placeholder/name.
+function _clickLabel(el) {
+  const clip = (s) => s.replace(/\s+/g, ' ').trim().slice(0, 200);
+  const text = el.textContent ? clip(el.textContent) : '';
+  const meaningful = /[\p{L}\p{N}]/u.test(text);
+  if (meaningful) return text;
+
+  const attr = (n) => {
+    const v = typeof el.getAttribute === 'function' ? el.getAttribute(n) : null;
+    return v ? clip(v) : '';
+  };
+  const fallback =
+    attr('aria-label') ||
+    attr('title') ||
+    (el.tagName === 'IMG' ? attr('alt') : clip(el.querySelector?.('img[alt]')?.getAttribute('alt') ?? '')) ||
+    attr('placeholder') ||
+    attr('name');
+  return fallback || text;   // emoji-only text still beats nothing
+}
+
+// The raw click target is often decoration — an icon, an svg path, a span
+// inside the real control. Resolve to the nearest interactive ancestor so
+// reporting names the button, not its ornament.
+const _INTERACTIVE = 'a, button, input, select, textarea, label, [role="button"], [data-testid], [data-track], [aria-label], [onclick]';
+
 /**
  * Attach a single capturing click listener on document.
  * Fires onClickCallback with enriched coordinate and element metadata.
@@ -211,12 +243,13 @@ const _UXT_COMPONENTS = new Set(['uxt-recorder-panel', 'uxt-task-panel']);
  */
 export function startClickCapture(onClickCallback) {
   _clickListener = (event) => {
-    const el = event.target;
-    if (_UXT_COMPONENTS.has(el.tagName?.toLowerCase())) return;
+    const raw = event.target;
+    if (_UXT_COMPONENTS.has(raw.tagName?.toLowerCase())) return;
+    const el = (typeof raw.closest === 'function' && raw.closest(_INTERACTIVE)) || raw;
     onClickCallback({
       ...captureClickCoordinates(event),
       elementSelector: getElementSelector(el),
-      elementText: (el.textContent?.trim() ?? '').slice(0, 200),
+      elementText: _clickLabel(el),
       elementTagName: el.tagName.toLowerCase(),
     });
   };

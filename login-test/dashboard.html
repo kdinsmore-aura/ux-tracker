@@ -35,9 +35,9 @@
 
     <!-- Nav items (placeholder) -->
     <div style="display:flex;align-items:center;gap:4px;">
-      <button class="dash-nav-btn active" style="background:var(--bg);border:none;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--text);cursor:pointer;font-family:inherit;">Home</button>
-      <button class="dash-nav-btn" style="background:none;border:none;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;font-family:inherit;">Projects</button>
-      <button class="dash-nav-btn" style="background:none;border:none;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;font-family:inherit;">Teams</button>
+      <button id="nav-home" data-track="dashboard_nav_home" class="dash-nav-btn active" style="background:var(--bg);border:none;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--text);cursor:pointer;font-family:inherit;">Home</button>
+      <button id="nav-projects" data-track="dashboard_nav_projects" class="dash-nav-btn" style="background:none;border:none;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;font-family:inherit;">Projects</button>
+      <button id="nav-teams" data-track="dashboard_nav_teams" class="dash-nav-btn" style="background:none;border:none;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;font-family:inherit;">Teams</button>
     </div>
 
     <!-- User avatar + sign out -->
@@ -100,7 +100,7 @@
     <div class="dash-section">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
         <h2 style="margin-bottom:0;">My tasks</h2>
-        <button style="background:none;border:none;font-size:13px;font-weight:500;color:var(--primary);cursor:pointer;font-family:inherit;padding:0;">
+        <button id="btn-view-all-tasks" data-track="dashboard_tasks_view_all" style="background:none;border:none;font-size:13px;font-weight:500;color:var(--primary);cursor:pointer;font-family:inherit;padding:0;">
           View all →
         </button>
       </div>
@@ -108,17 +108,23 @@
       <!-- Task rows (prototype placeholders) -->
       <div style="display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;">
-          <input type="checkbox" style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer;">
+          <input type="checkbox" id="task-check-q3-review" data-track="dashboard_task_toggle_q3_review"
+                 aria-label="Mark task done: Finalize Q3 design review"
+                 style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer;">
           <span style="font-size:14px;flex:1;">Finalize Q3 design review</span>
           <span style="font-size:12px;color:var(--muted);">Today</span>
         </div>
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;">
-          <input type="checkbox" style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer;">
+          <input type="checkbox" id="task-check-onboarding-docs" data-track="dashboard_task_toggle_onboarding_docs"
+                 aria-label="Mark task done: Update onboarding documentation"
+                 style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer;">
           <span style="font-size:14px;flex:1;">Update onboarding documentation</span>
           <span style="font-size:12px;color:var(--muted);">Tomorrow</span>
         </div>
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;">
-          <input type="checkbox" style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer;">
+          <input type="checkbox" id="task-check-review-prs" data-track="dashboard_task_toggle_review_prs"
+                 aria-label="Mark task done: Review pull requests from backend team"
+                 style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer;">
           <span style="font-size:14px;flex:1;">Review pull requests from backend team</span>
           <span style="font-size:12px;color:var(--muted);">Friday</span>
         </div>

@@ -256,28 +256,40 @@
       <p class="auth-subtitle">We'll tailor your experience to fit your workflow.</p>
 
       <div class="role-grid" id="role-grid">
-        <div class="role-card" data-role="developer" tabindex="0" role="button" aria-pressed="false">
-          <div class="role-icon">💻</div>
+        <div class="role-card" id="role-developer" data-track="onboarding_role_developer"
+             data-role="developer" tabindex="0" role="button" aria-pressed="false"
+             aria-label="Role: Developer">
+          <div class="role-icon" aria-hidden="true">💻</div>
           <div class="role-label">Developer</div>
         </div>
-        <div class="role-card" data-role="designer" tabindex="0" role="button" aria-pressed="false">
-          <div class="role-icon">🎨</div>
+        <div class="role-card" id="role-designer" data-track="onboarding_role_designer"
+             data-role="designer" tabindex="0" role="button" aria-pressed="false"
+             aria-label="Role: Designer">
+          <div class="role-icon" aria-hidden="true">🎨</div>
           <div class="role-label">Designer</div>
         </div>
-        <div class="role-card" data-role="product" tabindex="0" role="button" aria-pressed="false">
-          <div class="role-icon">📋</div>
+        <div class="role-card" id="role-product" data-track="onboarding_role_product"
+             data-role="product" tabindex="0" role="button" aria-pressed="false"
+             aria-label="Role: Product">
+          <div class="role-icon" aria-hidden="true">📋</div>
           <div class="role-label">Product</div>
         </div>
-        <div class="role-card" data-role="manager" tabindex="0" role="button" aria-pressed="false">
-          <div class="role-icon">📊</div>
+        <div class="role-card" id="role-manager" data-track="onboarding_role_manager"
+             data-role="manager" tabindex="0" role="button" aria-pressed="false"
+             aria-label="Role: Manager">
+          <div class="role-icon" aria-hidden="true">📊</div>
           <div class="role-label">Manager</div>
         </div>
-        <div class="role-card" data-role="marketing" tabindex="0" role="button" aria-pressed="false">
-          <div class="role-icon">📣</div>
+        <div class="role-card" id="role-marketing" data-track="onboarding_role_marketing"
+             data-role="marketing" tabindex="0" role="button" aria-pressed="false"
+             aria-label="Role: Marketing">
+          <div class="role-icon" aria-hidden="true">📣</div>
           <div class="role-label">Marketing</div>
         </div>
-        <div class="role-card" data-role="other" tabindex="0" role="button" aria-pressed="false">
-          <div class="role-icon">✨</div>
+        <div class="role-card" id="role-other" data-track="onboarding_role_other"
+             data-role="other" tabindex="0" role="button" aria-pressed="false"
+             aria-label="Role: Other">
+          <div class="role-icon" aria-hidden="true">✨</div>
           <div class="role-label">Other</div>
         </div>
       </div>
@@ -315,7 +327,8 @@
             <div class="pref-sub">Updates on tasks, mentions &amp; comments</div>
           </div>
           <label class="toggle-switch">
-            <input type="checkbox" id="pref-email" checked data-pref="email_notifications">
+            <input type="checkbox" id="pref-email" checked data-pref="email_notifications"
+                 aria-label="Email notifications">
             <span class="toggle-track"></span>
           </label>
         </div>
@@ -326,7 +339,8 @@
             <div class="pref-sub">Summary of your team's activity each Monday</div>
           </div>
           <label class="toggle-switch">
-            <input type="checkbox" id="pref-digest" checked data-pref="weekly_digest">
+            <input type="checkbox" id="pref-digest" checked data-pref="weekly_digest"
+                 aria-label="Weekly digest">
             <span class="toggle-track"></span>
           </label>
         </div>
@@ -337,7 +351,8 @@
             <div class="pref-sub">Tips, product news and feature announcements</div>
           </div>
           <label class="toggle-switch">
-            <input type="checkbox" id="pref-marketing" data-pref="marketing_emails">
+            <input type="checkbox" id="pref-marketing" data-pref="marketing_emails"
+                 aria-label="Marketing emails">
             <span class="toggle-track"></span>
           </label>
         </div>
