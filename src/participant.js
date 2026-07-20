@@ -65,6 +65,7 @@ let _surveyResponses     = [];    // accumulated responses (mirrored to the sess
 let _surveyActive        = false; // a survey card/overlay is currently displayed
 let _surveyQueue         = [];    // surveys waiting to be shown (one at a time)
 let _pendingCompletionMs = null;  // completion screen deferred until surveys done
+let _pendingTaskStart    = false; // next task's briefing deferred until surveys done
 
 // ─── Session state helpers ────────────────────────────────────────────────────
 
@@ -439,7 +440,8 @@ function _completeTask(screenId) {
     completed_tasks:    _completedTasks,
   }).catch(() => {});
 
-  _updatePanel();
+  // The after-task survey belongs to the task just finished — enqueue it
+  // before the next task is framed so the participant answers it first.
   _maybeFireSurvey(task, screenId);
 
   if (_currentTaskIndex >= _sortedTasks.length) {
@@ -449,15 +451,42 @@ function _completeTask(screenId) {
     return;
   }
 
-  bufferEvent(
-    _makeEvent('task_start', screenId, { step_index: _currentTaskIndex }),
-    _getState(),
-    _participantId,
-  );
+  // Every task after the first opens with a full-screen briefing the
+  // participant must acknowledge, so they enter each task knowing its goal.
+  // task_start (and the task clock) only fires on "Start task", so
+  // briefing-reading time counts against neither the previous nor the next
+  // task. If an after-task survey is still on screen, wait for it to drain.
+  if (_surveyActive) {
+    _pendingTaskStart = true;
+  } else {
+    _beginNextTask();
+  }
+}
 
-  // The next task's goal may already be satisfied on this screen (or the
-  // task may have no goal) — cascade immediately.
-  _evaluateActiveGoal(screenId, null);
+// Open the current task's full-screen briefing; the task officially begins
+// (task_start + goal evaluation) only when the participant clicks "Start
+// task". Falls back to starting immediately if the panel is unavailable, so a
+// study can never wedge behind a missing modal.
+function _beginNextTask() {
+  const startTask = () => {
+    const screenId = computeScreenId(_config.screens);
+    bufferEvent(
+      _makeEvent('task_start', screenId, { step_index: _currentTaskIndex }),
+      _getState(),
+      _participantId,
+    );
+    _updatePanel();
+    // The new task's goal may already be satisfied on this screen (or the
+    // task may have no goal) — cascade now that it has officially begun.
+    _evaluateActiveGoal(screenId, null);
+  };
+
+  const idx = Math.min(_currentTaskIndex, _sortedTasks.length - 1);
+  if (_panel && typeof _panel.showTaskBriefing === 'function') {
+    _panel.showTaskBriefing(_sortedTasks[idx], idx, _sortedTasks.length, startTask);
+  } else {
+    startTask();
+  }
 }
 
 // ─── End-screen fallback completion (no-goal mode) ────────────────────────────
@@ -579,6 +608,9 @@ function _showNextSurvey() {
       const ms = _pendingCompletionMs;
       _pendingCompletionMs = null;
       if (_panel) _panel.showComplete(ms);
+    } else if (_pendingTaskStart) {
+      _pendingTaskStart = false;
+      _beginNextTask();
     } else {
       _updatePanel();
     }
@@ -867,6 +899,39 @@ const _PANEL_CSS = `
   }
   #complete-msg { font-size: 20px; font-weight: 600; color: #1a1a2e; line-height: 1.35; }
   #complete-time { font-size: 13px; color: #6c757d; }
+  #briefing-overlay {
+    position: fixed; inset: 0; background: rgba(17,24,39,.55);
+    display: none; align-items: center; justify-content: center;
+    z-index: 2147483647; padding: 24px; box-sizing: border-box;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  #briefing-overlay.open { display: flex; }
+  #briefing-card {
+    background: #ffffff; border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.3);
+    padding: 28px; width: 460px; max-width: 92vw;
+    max-height: 84vh; overflow-y: auto; box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  #briefing-study {
+    font-size: 11px; color: #6c757d; font-weight: 500;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  #briefing-progress {
+    font-size: 12px; color: #4f46e5; font-weight: 600; letter-spacing: .03em;
+  }
+  #briefing-prompt { font-size: 20px; font-weight: 600; color: #1a1a2e; line-height: 1.3; }
+  #briefing-instructions {
+    font-size: 14px; color: #374151; line-height: 1.6;
+    white-space: pre-line; display: none;
+  }
+  #briefing-start {
+    align-self: flex-start; padding: 10px 24px; border: none;
+    border-radius: 8px; background: #4f46e5; color: #fff;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: opacity .15s; margin-top: 4px;
+  }
+  #briefing-start:hover { opacity: .9; }
   #feedback { display: none; flex-direction: column; gap: 10px; margin-top: 4px; }
   #feedback.show { display: flex; }
   .fb-prompt { font-size: 13px; font-weight: 500; color: #1a1a2e; line-height: 1.4; }
@@ -990,6 +1055,15 @@ class UxtTaskPanel extends HTMLElement {
           </div>
         </div>
       </div>
+      <div id="briefing-overlay">
+        <div id="briefing-card">
+          <div id="briefing-study"></div>
+          <div id="briefing-progress"></div>
+          <div id="briefing-prompt"></div>
+          <div id="briefing-instructions"></div>
+          <button id="briefing-start" type="button">Start task</button>
+        </div>
+      </div>
     `;
     this._q('header').addEventListener('click', () => this._toggleMinimize());
   }
@@ -1032,6 +1106,32 @@ class UxtTaskPanel extends HTMLElement {
     void panel.offsetWidth; // restart animation
     panel.classList.add('stale-flash');
     setTimeout(() => panel.classList.remove('stale-flash'), 2000);
+  }
+
+  // Full-screen briefing shown at the start of each task (after the first).
+  // The participant must click "Start task" to continue, so they enter every
+  // task aware of its goal. Modeled on the welcome/completion modals so the
+  // study's screens read as one system. prompt/instructions are set via
+  // textContent — researcher-authored text is never parsed as HTML. Because
+  // this overlay lives inside the panel's closed shadow root, its clicks
+  // retarget to <uxt-task-panel> and are ignored by the tracker's click
+  // capture, so acknowledging a briefing never lands in the event stream.
+  showTaskBriefing(task, taskIndex, total, onStart) {
+    this._q('briefing-study').textContent    = _study?.name ?? '';
+    this._q('briefing-progress').textContent  = `Task ${taskIndex + 1} of ${total}`;
+    this._q('briefing-prompt').textContent    = task?.prompt ?? '';
+
+    const instr = this._q('briefing-instructions');
+    const text  = (task?.instructions || '').trim();
+    instr.textContent   = text;
+    instr.style.display = text ? 'block' : 'none';
+
+    const overlay = this._q('briefing-overlay');
+    this._q('briefing-start').addEventListener('click', () => {
+      overlay.classList.remove('open');
+      onStart();
+    }, { once: true });
+    overlay.classList.add('open');
   }
 
   // Full-page modal styled like the welcome gate — the study's bookends match.
@@ -1404,6 +1504,7 @@ async function _startNewSession(studyId, existingState, expired) {
   _surveyResponses  = [];
   _visitedOtherScreen = false;
   _sessionCompleted   = false;
+  _pendingTaskStart   = false;
 
   updateParticipantStatus(_participantId, 'in_progress', {
     started_at: now,
