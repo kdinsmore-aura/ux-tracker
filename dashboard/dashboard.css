@@ -604,6 +604,14 @@ html, body {
 .badge-draft       { background: var(--subtle); color: var(--text-2); }
 .badge-closed      { background: #FEE2E2; color: #991B1B; }
 
+.badge-partial {
+  background: var(--warn-bg);
+  color: #92400E;
+  border: 1px solid var(--warn-border);
+  margin-left: 6px;
+  font-size: 10.5px;
+}
+
 .badge-offpath {
   background: var(--warn-bg);
   color: #92400E;
@@ -919,6 +927,7 @@ label {
 /* Terminal markers */
 .jy-terminal.drop     { fill: var(--danger-bg); stroke: var(--danger); stroke-width: 3; }
 .jy-terminal.done     { fill: #D1FAE5; stroke: #10B981; stroke-width: 3; }
+.jy-terminal.partial  { fill: var(--warn-bg); stroke: var(--warn); stroke-width: 3; }
 .jy-terminal.progress { fill: var(--subtle); stroke: var(--text-3); stroke-width: 3; stroke-dasharray: 3 3; }
 .jy-term-glyph { font-size: 11px; font-weight: 700; fill: var(--text); pointer-events: none; }
 

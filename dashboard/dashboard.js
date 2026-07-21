@@ -66,6 +66,7 @@ function dashboardApp() {
       stats: {
         totalInvited: 0,
         completed: 0,
+        partial: 0,
         notCompleted: 0,
         avgDuration: '—',
         completionRate: 0,
@@ -510,6 +511,12 @@ function dashboardApp() {
         const completed = all.filter(s => s.status === 'completed');
         const notCompleted = all.filter(s => s.status !== 'completed');
 
+        // Levels of success: partial completions (reached the end screen with
+        // task goals unmet) are reported as their own level, never inside the
+        // full-completion count or rate.
+        const partial = completed.filter(s => this.sessionPartial(s));
+        const fullyCompleted = completed.filter(s => !this.sessionPartial(s));
+
         const completedWithDuration = completed.filter(s => s.duration_ms > 0);
         const avgDurationMs = completedWithDuration.length
           ? completedWithDuration.reduce((a, s) => a + s.duration_ms, 0) / completedWithDuration.length
@@ -523,10 +530,11 @@ function dashboardApp() {
 
         this.overview.stats = {
           totalInvited,
-          completed: completed.length,
+          completed: fullyCompleted.length,
+          partial: partial.length,
           notCompleted: notCompleted.length,
           avgDuration: avgDurationMs != null ? this.fmtDuration(avgDurationMs) : '—',
-          completionRate: totalInvited > 0 ? Math.round((completed.length / totalInvited) * 100) : 0,
+          completionRate: totalInvited > 0 ? Math.round((fullyCompleted.length / totalInvited) * 100) : 0,
           avgSteps,
         };
 
@@ -1243,6 +1251,37 @@ function dashboardApp() {
       }[v] || '—';
     },
 
+    // Goal mode mirrors the participant runtime: any task with a usable goal.
+    _studyGoalMode() {
+      return (this.study?.tasks || []).some((t) => {
+        const g = t?.goal;
+        if (!g) return false;
+        return (g.type === 'screen' && g.screenId) ||
+               (g.type === 'click' && (g.selector || g.elementText));
+      });
+    },
+
+    // Partial completion: a goal-mode participant who confirmed "Finish study"
+    // on the end screen with task goals still unmet. Recorded as
+    // completed_via='end_screen' with completed_tasks left honest — in goal
+    // mode that combination can only come from the partial-finish prompt.
+    // (Strict-mode end_screen completions are indirect FULL successes and
+    // never match: _studyGoalMode() is false for them.)
+    sessionPartial(s) {
+      if (!s || s.status !== 'completed' || s.completed_via !== 'end_screen') return false;
+      const nTasks = (this.study?.tasks || []).length;
+      return nTasks > 0 && this._studyGoalMode() && (s.completed_tasks ?? 0) < nTasks;
+    },
+
+    // Drawer label: the base completed_via label, expanded for partials.
+    completedViaLabelFor(s) {
+      if (this.sessionPartial(s)) {
+        const nTasks = (this.study?.tasks || []).length;
+        return `Reached the end with ${s.completed_tasks ?? 0} of ${nTasks} tasks completed (partial)`;
+      }
+      return this.completedViaLabel(s?.completed_via);
+    },
+
     _normScreen(s) {
       const x = String(s || '').toLowerCase().trim();
       return x.length > 1 ? x.replace(/\/+$/, '') : x;
@@ -1383,9 +1422,13 @@ function dashboardApp() {
         }
       }
 
-      // Outcome
+      // Outcome — partial completions (goal mode, finished early on the end
+      // screen with tasks unmet) are their own level, per levels-of-success
+      // practice: never lumped in with full successes.
       let outcome;
-      if (s.status === 'completed') {
+      if (this.sessionPartial(s)) {
+        outcome = { kind: 'partial', label: this.completedViaLabelFor(s) };
+      } else if (s.status === 'completed') {
         outcome = { kind: s.completed_via || 'path', label: this.completedViaLabel(s.completed_via) };
       } else if (s.status === 'abandoned') {
         outcome = { kind: 'dropped', label: 'Dropped off' };
@@ -1423,6 +1466,10 @@ function dashboardApp() {
           if (slots[i].si === pos) { at = i; break; }
         }
         slots.splice(at + 1, 0, { type: 'terminal', outcome, si: pos });
+      } else if (outcome.kind === 'partial') {
+        // Partial completions DO reach the end station, but the ride must not
+        // read as a full success — an explicit amber terminal closes it out.
+        slots.push({ type: 'terminal', outcome, si: stations.length - 1 });
       }
 
       // End-of-study feedback (the completion-screen rating/comment) closes the
@@ -1579,12 +1626,12 @@ function dashboardApp() {
             : `<text x="${c.x}" y="${devL + 26}" class="jy-screen" text-anchor="middle">feedback</text>`);
         } else {
           const k = sl.outcome.kind;
-          const cls = k === 'dropped' ? 'drop' : (k === 'in_progress' ? 'progress' : 'done');
+          const cls = k === 'dropped' ? 'drop' : (k === 'in_progress' ? 'progress' : (k === 'partial' ? 'partial' : 'done'));
           const c = P(a, devL);
           out.push(`<circle data-node="${i}" cx="${c.x}" cy="${c.y}" r="10" class="jy-terminal ${cls}${selCls}"/>`);
           const glyph = k === 'dropped' ? '✕' : (k === 'in_progress' ? '…' : '✓');
           out.push(`<text x="${c.x}" y="${c.y + 4}" class="jy-term-glyph" text-anchor="middle">${glyph}</text>`);
-          const lbl = k === 'dropped' ? 'dropped' : (k === 'in_progress' ? 'in progress' : 'completed');
+          const lbl = k === 'dropped' ? 'dropped' : (k === 'in_progress' ? 'in progress' : (k === 'partial' ? 'partial' : 'completed'));
           out.push(vert
             ? `<text x="${devL + 16}" y="${a + 4}" class="jy-screen" text-anchor="start">${lbl}</text>`
             : `<text x="${c.x}" y="${devL + 26}" class="jy-screen" text-anchor="middle">${lbl}</text>`);
@@ -1851,13 +1898,13 @@ function dashboardApp() {
         } else {
           const t = sl.term;
           const k = t.outcome.kind;
-          const cls = k === 'dropped' ? 'drop' : (k === 'in_progress' ? 'progress' : 'done');
+          const cls = k === 'dropped' ? 'drop' : (k === 'in_progress' ? 'progress' : (k === 'partial' ? 'partial' : 'done'));
           const p = P(a, devL);
           out.push(`<circle data-node="${i}" cx="${p.x}" cy="${p.y}" r="10" class="jy-terminal ${cls}${selCls}"/>`);
           const glyph = k === 'dropped' ? '✕' : (k === 'in_progress' ? '…' : '✓');
           out.push(`<text x="${p.x}" y="${p.y + 4}" class="jy-term-glyph" text-anchor="middle">${glyph}${t.hits.length > 1 ? '×' + t.hits.length : ''}</text>`);
           if (vert) {
-            const lbl = k === 'dropped' ? 'dropped' : (k === 'in_progress' ? 'in progress' : 'completed');
+            const lbl = k === 'dropped' ? 'dropped' : (k === 'in_progress' ? 'in progress' : (k === 'partial' ? 'partial' : 'completed'));
             out.push(`<text x="${devL + 18}" y="${a + 4}" class="jy-screen" text-anchor="start">${lbl}</text>`);
           }
         }
@@ -2085,15 +2132,24 @@ function dashboardApp() {
       }
       // terminal
       const s = this.drawerSession;
+      const rows = [
+        ['Status', s?.status ?? '—'],
+        ['Duration', this.fmtDuration(s?.duration_ms)],
+        ['Steps matched', `${s?.completed_steps ?? 0} / ${s?.total_steps ?? '—'}`],
+      ];
+      if (this.sessionPartial(s)) {
+        const tasks = this.study?.tasks || [];
+        rows.push(['Tasks completed', `${s.completed_tasks ?? 0} / ${tasks.length}`]);
+        const sorted = [...tasks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        const skipped = sorted.slice(s.completed_tasks ?? 0)
+          .map((t) => String(t.prompt || '').slice(0, 40)).filter(Boolean);
+        if (skipped.length) rows.push(['Skipped', skipped.join(' · ')]);
+      }
       return {
         nodeId: idx,
         title: sl.outcome.label,
         shot: null,
-        rows: [
-          ['Status', s?.status ?? '—'],
-          ['Duration', this.fmtDuration(s?.duration_ms)],
-          ['Steps matched', `${s?.completed_steps ?? 0} / ${s?.total_steps ?? '—'}`],
-        ],
+        rows,
       };
     },
 

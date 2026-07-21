@@ -66,6 +66,7 @@ let _surveyActive        = false; // a survey card/overlay is currently displaye
 let _surveyQueue         = [];    // surveys waiting to be shown (one at a time)
 let _pendingCompletionMs = null;  // completion screen deferred until surveys done
 let _pendingTaskStart    = false; // next task's briefing deferred until surveys done
+let _endPromptArmed      = true;  // "finish early?" prompt re-arms when off the end screen
 
 // ─── Session state helpers ────────────────────────────────────────────────────
 
@@ -532,6 +533,54 @@ function _checkEndScreenCompletion(screenId) {
   });
 }
 
+// ─── Partial completion (goal mode) ───────────────────────────────────────────
+
+// Goal-mode counterpart of the end-screen fallback. A participant who bypasses
+// a task goal (e.g. a click goal on a screen they skipped) but reaches the
+// recording's end screen would otherwise be stranded — no goal left to satisfy
+// completes the session, and the eventual timeout mislabels a
+// reached-the-end participant as "abandoned". Unlike strict mode this does NOT
+// auto-complete: unmet goals are affirmative evidence they may not be done
+// (and some prototypes pass through the end screen mid-flow), so the
+// participant confirms via a modal. Declining re-arms only after they leave
+// the end screen, so the prompt never nags on the same visit.
+function _maybePromptEndFinish(screenId) {
+  if (!_goalMode || _sessionCompleted) return;
+  if (!_endScreenId) return;
+  if (!_screenMatchesGoal(screenId, _endScreenId)) {
+    _endPromptArmed = true;   // left the end screen — a future arrival may prompt again
+    return;
+  }
+  if (!_endPromptArmed || !_visitedOtherScreen) return;
+  if (_surveyActive) return;  // survey first; the drain re-checks
+  if (_currentTaskIndex >= _sortedTasks.length) return;
+  if (!_panel || typeof _panel.showEndPrompt !== 'function') return;
+
+  _endPromptArmed = false;    // one prompt per end-screen visit
+  const unmet = _sortedTasks.slice(_currentTaskIndex);
+  _panel.showEndPrompt(unmet, () => _finishPartial(), () => {});
+}
+
+// Participant confirmed "Finish study" with tasks still open: record each
+// remaining task as skipped, then complete via the end-screen route. Skipped
+// tasks fire no task_start (so no briefing) and no after-task survey — the
+// participant never did that work. completed_tasks stays honest, which is how
+// the dashboard derives "partial".
+function _finishPartial() {
+  if (_sessionCompleted) return;
+  const screenId = computeScreenId(_config.screens);
+  for (let k = _currentTaskIndex; k < _sortedTasks.length; k++) {
+    bufferEvent(
+      _makeEvent('task_skipped', screenId, { step_index: k }),
+      _getState(),
+      _participantId,
+    );
+  }
+  _completeSession('end_screen').catch((err) => {
+    console.error('[UXTracker Participant] Session completion error:', err);
+  });
+}
+
 // ─── Mid-study surveys ────────────────────────────────────────────────────────
 
 // Surveys show one at a time; anything that fires while one is on screen
@@ -613,6 +662,9 @@ function _showNextSurvey() {
       _beginNextTask();
     } else {
       _updatePanel();
+      // The end-screen prompt defers to an active survey — re-check now that
+      // the queue has drained (the participant may be sitting on the end screen).
+      _maybePromptEndFinish(computeScreenId(_config.screens));
     }
   });
 }
@@ -662,6 +714,9 @@ function _handleClick(clickData) {
       }).catch(() => {});
     }
     _evaluateActiveGoal(screenId, clickData);
+    // A custom screen detector may have swapped the screen without a
+    // navigation event — the end-screen prompt must notice here too.
+    _maybePromptEndFinish(screenId);
     return;
   }
 
@@ -723,6 +778,7 @@ async function _handleNavigation() {
   _evaluateActiveGoal(newScreenId, null);
   _maybeFireScreenSurveys(newScreenId);
   _checkEndScreenCompletion(newScreenId);
+  _maybePromptEndFinish(newScreenId);
   _updatePanel();
 }
 
@@ -932,6 +988,40 @@ const _PANEL_CSS = `
     transition: opacity .15s; margin-top: 4px;
   }
   #briefing-start:hover { opacity: .9; }
+  #endprompt-overlay {
+    position: fixed; inset: 0; background: rgba(17,24,39,.55);
+    display: none; align-items: center; justify-content: center;
+    z-index: 2147483647; padding: 24px; box-sizing: border-box;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  #endprompt-overlay.open { display: flex; }
+  #endprompt-card {
+    background: #ffffff; border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.3);
+    padding: 28px; width: 460px; max-width: 92vw;
+    max-height: 84vh; overflow-y: auto; box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  #endprompt-title { font-size: 20px; font-weight: 600; color: #1a1a2e; line-height: 1.3; }
+  #endprompt-msg   { font-size: 14px; color: #374151; line-height: 1.6; }
+  #endprompt-tasks {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 10px 12px; background: #f8f9fa; border-radius: 8px;
+  }
+  .ep-task { font-size: 13px; color: #374151; line-height: 1.45; display: flex; gap: 8px; }
+  .ep-task::before { content: '○'; color: #9ca3af; flex-shrink: 0; }
+  #endprompt-btns { display: flex; gap: 10px; margin-top: 4px; }
+  #endprompt-finish {
+    padding: 10px 24px; border: none; border-radius: 8px;
+    background: #4f46e5; color: #fff; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: opacity .15s;
+  }
+  #endprompt-finish:hover { opacity: .9; }
+  #endprompt-keep {
+    padding: 10px 24px; border: none; border-radius: 8px;
+    background: #e9ecef; color: #374151; font-size: 14px; font-weight: 600;
+    cursor: pointer;
+  }
   #feedback { display: none; flex-direction: column; gap: 10px; margin-top: 4px; }
   #feedback.show { display: flex; }
   .fb-prompt { font-size: 13px; font-weight: 500; color: #1a1a2e; line-height: 1.4; }
@@ -1064,6 +1154,17 @@ class UxtTaskPanel extends HTMLElement {
           <button id="briefing-start" type="button">Start task</button>
         </div>
       </div>
+      <div id="endprompt-overlay">
+        <div id="endprompt-card">
+          <div id="endprompt-title">It looks like you've reached the end</div>
+          <div id="endprompt-msg"></div>
+          <div id="endprompt-tasks"></div>
+          <div id="endprompt-btns">
+            <button id="endprompt-finish" type="button">Finish study</button>
+            <button id="endprompt-keep" type="button">Keep going</button>
+          </div>
+        </div>
+      </div>
     `;
     this._q('header').addEventListener('click', () => this._toggleMinimize());
   }
@@ -1131,6 +1232,45 @@ class UxtTaskPanel extends HTMLElement {
       overlay.classList.remove('open');
       onStart();
     }, { once: true });
+    overlay.classList.add('open');
+  }
+
+  // Full-screen confirm shown when a goal-mode participant reaches the
+  // recording's end screen with task goals still unmet. They decide: finish
+  // now (remaining tasks recorded as skipped → partial completion) or keep
+  // working. Same modal family as welcome/briefing/completion. Task prompts
+  // are researcher-authored — set via textContent, never parsed as HTML.
+  // onclick (not addEventListener) so re-showing on a later end-screen visit
+  // replaces the handlers instead of stacking them.
+  showEndPrompt(unmetTasks, onFinish, onKeep) {
+    const overlay = this._q('endprompt-overlay');
+    if (overlay.classList.contains('open')) return;
+
+    const n = unmetTasks.length;
+    this._q('endprompt-msg').textContent =
+      `You still have ${n} unfinished task${n !== 1 ? 's' : ''}. You can finish ` +
+      'the study now, or keep going if you’d like to try to complete ' +
+      (n !== 1 ? 'them' : 'it') + '.';
+
+    const list = this._q('endprompt-tasks');
+    list.innerHTML = '';
+    unmetTasks.forEach((t) => {
+      const row = document.createElement('div');
+      row.className = 'ep-task';
+      const span = document.createElement('span');
+      span.textContent = t?.prompt ?? '';
+      row.appendChild(span);
+      list.appendChild(row);
+    });
+
+    this._q('endprompt-finish').onclick = () => {
+      overlay.classList.remove('open');
+      onFinish();
+    };
+    this._q('endprompt-keep').onclick = () => {
+      overlay.classList.remove('open');
+      onKeep();
+    };
     overlay.classList.add('open');
   }
 
@@ -1505,6 +1645,7 @@ async function _startNewSession(studyId, existingState, expired) {
   _visitedOtherScreen = false;
   _sessionCompleted   = false;
   _pendingTaskStart   = false;
+  _endPromptArmed     = true;
 
   updateParticipantStatus(_participantId, 'in_progress', {
     started_at: now,
@@ -1559,4 +1700,5 @@ function _activateTracking() {
   _evaluateActiveGoal(_currentScreenId, null);
   _maybeFireScreenSurveys(_currentScreenId);
   _checkEndScreenCompletion(_currentScreenId);
+  _maybePromptEndFinish(_currentScreenId);
 }

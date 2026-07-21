@@ -168,7 +168,7 @@
           <template x-if="overview.loading">
             <div>
               <div class="stat-grid">
-                <template x-for="n in 6" :key="n">
+                <template x-for="n in 7" :key="n">
                   <div class="skeleton skeleton-card"></div>
                 </template>
               </div>
@@ -194,7 +194,12 @@
                 </div>
                 <div class="stat-card ok">
                   <div class="stat-value" x-text="overview.stats.completed"></div>
-                  <div class="stat-label">Sessions Completed</div>
+                  <div class="stat-label">Fully Completed</div>
+                </div>
+                <div class="stat-card" :class="overview.stats.partial > 0 ? 'warn' : ''"
+                     title="Reached the end screen but finished with task goals unmet">
+                  <div class="stat-value" x-text="overview.stats.partial"></div>
+                  <div class="stat-label">Partial (Reached End)</div>
                 </div>
                 <div class="stat-card warn">
                   <div class="stat-value" x-text="overview.stats.notCompleted"></div>
@@ -206,7 +211,7 @@
                 </div>
                 <div class="stat-card" :class="completionRateClass(overview.stats.completionRate)">
                   <div class="stat-value" x-text="overview.stats.completionRate + '%'"></div>
-                  <div class="stat-label">Overall Completion Rate</div>
+                  <div class="stat-label">Full Completion Rate</div>
                 </div>
                 <div class="stat-card">
                   <div class="stat-value" x-text="overview.stats.avgSteps + ' / ' + (study?.ideal_path?.length || '—')"></div>
@@ -349,8 +354,10 @@
                       <td class="cell-label" x-text="s.participant_label || s.participant_id?.slice(0,8) + '…'"></td>
                       <td>
                         <span class="badge" :class="'badge-' + s.status" x-text="s.status.replace('_',' ')"></span>
-                        <span class="badge badge-offpath" x-show="s.completed_via === 'end_screen'"
+                        <span class="badge badge-offpath" x-show="s.completed_via === 'end_screen' && !sessionPartial(s)"
                               title="Deviated from the recorded path but reached the end screen">↷ off-path</span>
+                        <span class="badge badge-partial" x-show="sessionPartial(s)"
+                              :title="completedViaLabelFor(s)">◐ partial</span>
                       </td>
                       <td x-text="fmtDuration(s.duration_ms)"></td>
                       <td x-text="(s.completed_steps || 0) + ' / ' + (s.total_steps || '—')"></td>
@@ -890,7 +897,7 @@
                 <span x-text="fmtDateTime(drawerSession.started_at)"></span></div>
               <div x-show="drawerSession.status === 'completed'" style="grid-column:1 / -1">
                 <span class="text-muted">Completed via: </span>
-                <span x-text="completedViaLabel(drawerSession.completed_via)"></span>
+                <span x-text="completedViaLabelFor(drawerSession)"></span>
               </div>
             </div>
             <div class="msg msg-warning" style="margin-top:10px;margin-bottom:0"
