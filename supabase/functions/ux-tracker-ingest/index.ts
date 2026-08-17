@@ -313,9 +313,23 @@ Deno.serve(async (req: Request) => {
         const screenData = payload.screenData as Record<string, unknown> | null;
         if (!screenData?.study_id) return bad('screenData.study_id is required');
         if (!screenData?.screen_id) return bad('screenData.screen_id is required');
+        // Only the recorder upserts screens, and every upsert carries a freshly
+        // computed hash — so this capture IS the new baseline. Staleness
+        // accumulated against the PREVIOUS hash no longer describes anything
+        // and must be cleared, or a study wears the "page changed" banner
+        // forever after one detection: nothing else ever resets these columns,
+        // and a plain upsert leaves them untouched on the conflicting row.
+        // Reset server-side so the client cannot omit it and existing deployed
+        // tracker bundles pick the fix up without a rebuild.
+        const row = {
+          ...screenData,
+          is_stale: false,
+          change_detected_at: null,
+          first_stale_session_id: null,
+        };
         const { data, error } = await db
           .from('screens')
-          .upsert(screenData, { onConflict: 'study_id,screen_id' })
+          .upsert(row, { onConflict: 'study_id,screen_id' })
           .select()
           .single();
         if (error) {
@@ -482,6 +496,26 @@ Deno.serve(async (req: Request) => {
           }
 
           update.tasks = tasks;
+        }
+
+        // Saving a recording re-baselines the study, so the study-level warning
+        // flag is recomputed rather than left latched on. Derived from the
+        // screens table instead of blindly cleared: a researcher who re-walks
+        // only part of the flow leaves the screens they skipped still stale,
+        // and the banner should keep warning about those. Each screen the
+        // recorder did re-capture was reset by upsertScreen above.
+        // A failure here is non-fatal — leave the flag as-is rather than lose
+        // the recording, since stale-on is the safe direction.
+        const { data: staleRows, error: staleErr } = await db
+          .from('screens')
+          .select('id')
+          .eq('study_id', studyId)
+          .eq('is_stale', true)
+          .limit(1);
+        if (staleErr) {
+          console.error('updateStudyIdealPath staleness recount:', staleErr);
+        } else {
+          update.has_screen_changes = (staleRows?.length ?? 0) > 0;
         }
 
         const { error } = await db
