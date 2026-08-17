@@ -181,6 +181,12 @@
 
       <!-- Avatar -->
       <div class="avatar-wrap">
+        <!-- data-dynamic="true" keeps this control out of the DOM fingerprint
+             used for staleness detection. Its label is the participant's own
+             initials, derived live from the display-name field, so every
+             participant would otherwise hash differently and every session
+             would be flagged "page changed" against the recording. Excluding
+             it affects staleness only — the click is still tracked normally. -->
         <div
           class="avatar-circle-upload"
           id="avatar-btn"
@@ -188,6 +194,7 @@
           tabindex="0"
           aria-label="Upload profile photo"
           data-track="onboarding_avatar_click"
+          data-dynamic="true"
         >
           <span id="avatar-initials">?</span>
           <div
