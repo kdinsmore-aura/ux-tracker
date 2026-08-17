@@ -236,7 +236,11 @@
           <span class="field-error" id="err-username"></span>
         </div>
 
-        <button type="submit" id="btn-1" class="btn btn-primary" style="margin-top:4px;">
+        <!-- type="button", not "submit": every path to advancing this step is
+             routed through a real click on this button (see the handler
+             below), and a submit button would re-enter the form's submit
+             handler when clicked programmatically. -->
+        <button type="button" id="btn-1" class="btn btn-primary" style="margin-top:4px;">
           Continue
         </button>
       </form>
@@ -370,8 +374,9 @@
   <script src="app.js"></script>
   <script>
     // ── Page tracking ──────────────────────────────────────────
+    // onboarding_step_view for the entry step is emitted by the router below,
+    // so it is not fired here as well.
     Track.page('Onboarding', { path: 'onboarding.html', step: 1 });
-    Track.event('onboarding_step_view', { step: 1 });
 
     // ── Pre-fill display name from Proto user ─────────────────
     const user = Proto.getUser();
@@ -400,10 +405,25 @@
       avatarHov.style.display = 'none';
     });
 
-    // ── Step helpers ───────────────────────────────────────────
-    let currentStep = 1;
-    const totalSteps = 3;
+    // ── Step router ────────────────────────────────────────────
+    // Each step owns a URL hash so it reads as its own screen. UX Tracker
+    // derives a screen id from pathname + hash and only re-evaluates it on
+    // popstate / hashchange / pushState — toggling a CSS class is invisible to
+    // it, which would collapse all three steps into one screen and disable the
+    // deviation-recovery paths that depend on the screen id changing.
+    //
+    // The '/' prefix keeps each hash from matching an element id (#step-2),
+    // which would make the browser jump-scroll to that panel.
+    const STEP_HASHES = ['#/profile', '#/role', '#/preferences'];
+    const totalSteps  = STEP_HASHES.length;
+    let currentStep   = 1;
 
+    function stepFromHash() {
+      const i = STEP_HASHES.indexOf(location.hash.toLowerCase());
+      return i === -1 ? 1 : i + 1;
+    }
+
+    // Paint the DOM for step n. Driven by the router — call goToStep() instead.
     function showStep(n) {
       // Hide all panels
       for (let i = 1; i <= totalSteps; i++) {
@@ -421,6 +441,29 @@
       // Scroll to top of card
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+
+    // Advance by changing the URL — the hashchange is what makes the step
+    // visible to the tracker. Falls through to a direct repaint when the hash
+    // is already correct (nothing would fire).
+    function goToStep(n) {
+      const hash = STEP_HASHES[n - 1];
+      if (location.hash.toLowerCase() !== hash) location.hash = hash;
+      else showStep(n);
+    }
+
+    function renderFromHash() { showStep(stepFromHash()); }
+
+    // Back / forward moves between steps for free.
+    window.addEventListener('hashchange', renderFromHash);
+
+    // Normalise the entry URL so step 1 is hashed too, and every step reports
+    // as its own screen. replaceState adds no history entry, preserves the
+    // ?study=&participant= params, and runs before the tracker boots (its
+    // script tag is last in the body), so no navigation event is missed.
+    if (!STEP_HASHES.includes(location.hash.toLowerCase())) {
+      history.replaceState(null, '', STEP_HASHES[0]);
+    }
+    renderFromHash();
 
     // ── Step 1: Profile ────────────────────────────────────────
     // Field focus tracking
@@ -443,13 +486,18 @@
       }
     });
 
-    document.getElementById('form-1').addEventListener('submit', e => {
-      e.preventDefault();
+    // Advancing this step happens in ONE place — a click on btn-1. Pressing
+    // Enter fires no click event, so a keyboard participant would never match
+    // a recorded click on this button and the step would never advance. Both
+    // keyboard paths below forward to the same click instead.
+    const form1 = document.getElementById('form-1');
+    const btn1  = document.getElementById('btn-1');
 
+    btn1.addEventListener('click', () => {
       const nameVal = document.getElementById('display-name').value.trim();
       const userVal = document.getElementById('username').value.trim();
 
-      clearFieldErrors(e.target);
+      clearFieldErrors(form1);
       document.getElementById('alert-1').style.display = 'none';
 
       let valid = true;
@@ -467,13 +515,24 @@
 
       Track.event('onboarding_step1_continue', { has_username: !!userVal });
 
-      const btn = document.getElementById('btn-1');
-      btnLoading(btn, true);
+      btnLoading(btn1, true);
 
       setTimeout(() => {
-        btnLoading(btn, false);
-        showStep(2);
+        btnLoading(btn1, false);
+        goToStep(2);
       }, 500);
+    });
+
+    // btn-1 is type="button", so the form's native implicit submission is
+    // disabled and Enter has to be forwarded by hand. The submit listener is
+    // kept as a guard in case anything else submits the form; it cannot
+    // recurse, because clicking a type="button" never re-submits.
+    form1.addEventListener('submit', e => { e.preventDefault(); btn1.click(); });
+
+    ['display-name', 'username'].forEach(id => {
+      document.getElementById(id).addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); btn1.click(); }
+      });
     });
 
     // ── Step 2: Role selection ─────────────────────────────────
@@ -504,13 +563,13 @@
 
       setTimeout(() => {
         btnLoading(btn, false);
-        showStep(3);
+        goToStep(3);
       }, 500);
     });
 
     document.getElementById('skip-2').addEventListener('click', () => {
       Track.event('onboarding_step2_skip');
-      showStep(3);
+      goToStep(3);
     });
 
     // ── Step 3: Preferences ────────────────────────────────────
