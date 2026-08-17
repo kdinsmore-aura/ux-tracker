@@ -1,2 +1,5 @@
 node_modules/
 *.map
+
+# Supabase CLI state — records which project this checkout is linked to.
+supabase/.temp/

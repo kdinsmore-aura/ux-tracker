@@ -14,6 +14,19 @@ UX Tracker is a lightweight, script-tag framework for running moderated usabilit
 3. Copy your project URL and `anon` key from **Project Settings → API**.
 4. Deploy the Edge Function — see [supabase/functions/README.md](supabase/functions/README.md).
 
+## Building a prototype that tracks accurately
+
+Tracking quality is decided by the prototype's markup, not by the tracker. How
+you name clickable elements and how your screens map to URLs determine whether a
+report reads *"7 participants clicked **Continue to billing**"* or *"7
+participants clicked `div:nth-child(4)`"* — and, for single-page prototypes,
+whether a participant who strays from the recorded path can finish at all.
+
+**[docs/PROTOTYPE-GUIDE.md](docs/PROTOTYPE-GUIDE.md)** is a self-contained spec
+covering both multi-page and single-page (JS-driven) prototypes. It is written to
+be handed straight to an AI coding assistant — give it to Claude, ChatGPT, Cursor
+or similar before it writes or edits your prototype.
+
 ## Integration
 
 Add one of the following snippets to every prototype page.
