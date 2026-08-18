@@ -344,10 +344,78 @@ function setupApp() {
     promptDelete(id) { this.deleteTarget = id; },
     cancelDelete()   { this.deleteTarget = null; },
 
+    /**
+     * Every object under a study's storage prefix, walked recursively.
+     *
+     * Screenshot keys are '<studyId>/<screenId>.png' — flat, because the client
+     * and the Edge Function both collapse unsafe characters. But objects written
+     * before that collapse existed are genuinely nested
+     * ('<studyId>/ux-tracker/login-test.png'), and Storage's list() only returns
+     * one level, representing a folder as an entry with no id. Recursing is what
+     * stops those older studies from leaving objects behind.
+     */
+    async _collectStudyObjectPaths(studyId) {
+      const bucket = window.UXTrackerShots?.BUCKET || 'ux-tracker-screenshots';
+      const PAGE = 100;
+      const found = [];
+
+      const walk = async (dir) => {
+        let offset = 0;
+        for (;;) {
+          const { data, error } = await this._db.storage
+            .from(bucket)
+            .list(dir, { limit: PAGE, offset });
+          if (error) throw error;
+          const entries = data || [];
+          for (const entry of entries) {
+            if (!entry?.name) continue;
+            const full = dir ? `${dir}/${entry.name}` : entry.name;
+            // A folder comes back with a null id and no metadata.
+            if (entry.id == null) await walk(full);
+            else found.push(full);
+          }
+          if (entries.length < PAGE) break;   // last page
+          offset += PAGE;
+        }
+      };
+
+      await walk(String(studyId));
+      return found;
+    },
+
+    /** Remove every screenshot belonging to a study. Returns the count removed. */
+    async _deleteStudyScreenshots(studyId) {
+      const bucket = window.UXTrackerShots?.BUCKET || 'ux-tracker-screenshots';
+      const paths = await this._collectStudyObjectPaths(studyId);
+      if (!paths.length) return 0;
+      // Batched so a study with a long recording does not send one enormous body.
+      for (let i = 0; i < paths.length; i += 100) {
+        const { error } = await this._db.storage.from(bucket).remove(paths.slice(i, i + 100));
+        if (error) throw error;
+      }
+      return paths.length;
+    },
+
     async confirmDelete() {
       const id = this.deleteTarget;
       this.deleteTarget = null;
       if (!id) return;
+      this.studiesError = '';
+
+      // Screenshots first. Deleting the row first and then failing here would
+      // strand the objects permanently: nothing else records which study a
+      // prefix belonged to, so they stop being reachable from the UI. Doing
+      // storage first means any failure leaves the study intact and the whole
+      // operation safe to retry (removing an already-removed object is a no-op).
+      try {
+        await this._deleteStudyScreenshots(id);
+      } catch (e) {
+        this.studiesError =
+          `Delete failed while removing screenshots: ${e?.message || e}. `
+          + 'The study was not deleted — retrying is safe.';
+        return;
+      }
+
       const { error } = await this._db.from('studies').delete().eq('id', id);
       if (error) { this.studiesError = `Delete failed: ${error.message}`; return; }
       await this._loadStudies();

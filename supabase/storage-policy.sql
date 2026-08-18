@@ -68,3 +68,18 @@ CREATE POLICY "screenshots_auth_select"
   ON storage.objects FOR SELECT
   TO authenticated
   USING (bucket_id = 'ux-tracker-screenshots');
+
+-- Authenticated delete: deleting a study removes its screenshots. Every table
+-- cascades from studies.id, but Storage does not participate in FK cascades, so
+-- the setup page walks the study's '<studyId>/' prefix and removes the objects
+-- before deleting the row.
+--
+-- Deliberately NOT an ingest Edge Function action: that function runs with
+-- verify_jwt = false for public prototype pages, so a destructive action there
+-- would be callable by anyone. This grants a researcher nothing new either —
+-- the same session can already delete the study and cascade away every
+-- participant, session and event under it.
+CREATE POLICY "screenshots_auth_delete"
+  ON storage.objects FOR DELETE
+  TO authenticated
+  USING (bucket_id = 'ux-tracker-screenshots');
