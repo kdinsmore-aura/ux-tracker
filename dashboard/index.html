@@ -611,10 +611,12 @@
                           <td>
                             <div class="pct-bar">
                               <div class="pct-track">
-                                <div class="pct-fill" :class="pctClass(step.firstClickPct)"
-                                     :style="'width:' + step.firstClickPct + '%'"></div>
+                                <div class="pct-fill" :class="pctClass(step.firstClickPct ?? 0)"
+                                     :style="'width:' + (step.firstClickPct ?? 0) + '%'"></div>
                               </div>
-                              <span class="pct-value" x-text="step.firstClickPct + '%'"></span>
+                              <span class="pct-value"
+                                    :title="step.firstClickPct === null ? 'No click recorded at this step — a form field credited without a click' : null"
+                                    x-text="step.firstClickPct === null ? '—' : step.firstClickPct + '%'"></span>
                             </div>
                           </td>
                           <td>

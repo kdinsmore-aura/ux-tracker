@@ -1133,6 +1133,19 @@ function dashboardApp() {
         const events = data || [];
         const totalSessions = Math.max(this.sessions.list.length, 1);
 
+        // Highest step each session reached. The participant runtime only ever
+        // moves this cursor forward, so an event at step N proves steps 0..N-1
+        // were satisfied — including a step the runtime credited without a
+        // click (a form field filled by keyboard: see _isSkippableInputStep).
+        // Without this, a legitimately skipped field step reads as 0% reached.
+        const maxStepBySession = {};
+        events.forEach((e) => {
+          const prev = maxStepBySession[e.session_id];
+          if (prev === undefined || e.step_index > prev) {
+            maxStepBySession[e.session_id] = e.step_index;
+          }
+        });
+
         this.paths.steps = idealPath.map(pathStep => {
           const si = pathStep.stepIndex;
           const stepEvs = events.filter(e => e.step_index === si);
@@ -1145,7 +1158,12 @@ function dashboardApp() {
           });
           const firstClickCorrect = Object.values(firstBySession).filter(ev => ev.is_on_path).length;
 
+          // Satisfied either by a click that advanced here, or by having got
+          // past this step at all (the skipped-field case above).
           const eventuallySessions = new Set(stepEvs.filter(e => e.advances_step).map(e => e.session_id));
+          Object.keys(maxStepBySession).forEach((sid) => {
+            if (maxStepBySession[sid] > si) eventuallySessions.add(sid);
+          });
 
           const timings = stepEvs
             .filter(e => e.advances_step && e.ms_since_session_start > 0)
@@ -1176,9 +1194,12 @@ function dashboardApp() {
             stepIndex: si,
             elementSelector: pathStep.elementSelector,
             elementText: pathStep.elementText,
+            // null, not 0, when nobody clicked at this step: a field step the
+            // runtime credited without a click has no first click to be right
+            // or wrong about, and 0% would read as a failure. Rendered as "—".
             firstClickPct: sessionsAtStep.size > 0
               ? Math.round((firstClickCorrect / sessionsAtStep.size) * 100)
-              : 0,
+              : null,
             eventualPct: Math.round((eventuallySessions.size / totalSessions) * 100),
             avgTimeMs,
             avgClicks,

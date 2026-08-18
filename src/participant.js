@@ -184,6 +184,81 @@ function _showWelcome(onBegin) {
 
 // ─── On-path matching ─────────────────────────────────────────────────────────
 
+// Input types whose click IS the action (pressing a button, ticking a box,
+// opening a file picker). These are never skippable — only text-entry fields
+// are, since typing into one does not require clicking it.
+const _CLICKABLE_INPUT_TYPES = new Set([
+  'submit', 'button', 'image', 'reset', 'checkbox', 'radio', 'file', 'range', 'color',
+]);
+
+/**
+ * Is this recorded step a click on a text-entry field?
+ *
+ * Such a step is not reproducible by every participant: Tab, autofill, password
+ * managers, paste and clicking the field's <label> all move focus without
+ * producing a click on the field itself. The researcher clicked it while
+ * recording, so it became a required step — but requiring it makes any
+ * keyboard-driven form fill look like a deviation.
+ *
+ * Resolved against the live DOM when possible so that input[type=submit] and
+ * friends are correctly treated as real controls. A step recorded as an input
+ * that no longer resolves is treated as skippable: nobody can click an element
+ * that is not there, so demanding the click would strand the participant.
+ */
+function _isSkippableInputStep(step) {
+  const tag = String(step?.elementTag || '').toLowerCase();
+  if (tag !== 'input' && tag !== 'textarea') return false;
+
+  let el = null;
+  try {
+    el = step.elementSelector ? document.querySelector(step.elementSelector) : null;
+  } catch {
+    el = null;   // Invalid selector
+  }
+
+  // Not on this screen — recorded on another view, or the markup changed. A
+  // click on it is impossible here, so requiring one would strand the
+  // participant on this step for the rest of the session.
+  if (!el) return true;
+
+  const live = String(el.tagName || '').toUpperCase();
+  if (live === 'TEXTAREA') return true;
+  // Resolves to something other than a field (drifted markup, or a selector
+  // that now matches a different element): it is clickable, so require the
+  // click rather than silently crediting the step.
+  if (live !== 'INPUT') return false;
+
+  const type = String(el.getAttribute('type') || 'text').toLowerCase();
+  return !_CLICKABLE_INPUT_TYPES.has(type);
+}
+
+/**
+ * Index of the recorded step this click satisfies, or -1 for a genuine miss.
+ *
+ * Normally that is just the current step. Where it differs: if the current step
+ * is a text-entry field (see _isSkippableInputStep) and the click matches a
+ * LATER step, the intervening field steps are treated as satisfied and the
+ * cursor jumps forward. Without this, a participant who tabs between fields
+ * never produces the recorded click, the cursor parks on that step forever, and
+ * every subsequent correct click is recorded as a mis-click — one skipped field
+ * zeroes out the whole remainder of the path.
+ *
+ * Only field steps are skippable. A missed click on a button, link or any other
+ * control is still a deviation, which is the truth worth reporting.
+ */
+function _resolveMatchIndex(clickData, idealPath, fromIndex) {
+  if (fromIndex < 0 || fromIndex >= idealPath.length) return -1;
+  if (_isOnPath(clickData, idealPath[fromIndex])) return fromIndex;
+
+  let j = fromIndex;
+  while (j < idealPath.length && _isSkippableInputStep(idealPath[j])) {
+    const next = j + 1;
+    if (next < idealPath.length && _isOnPath(clickData, idealPath[next])) return next;
+    j++;
+  }
+  return -1;
+}
+
 function _isOnPath(clickData, expectedStep) {
   if (!expectedStep) return false;
 
@@ -674,8 +749,19 @@ function _showNextSurvey() {
 function _handleClick(clickData) {
   const screenId    = computeScreenId(_config.screens);
   const idealPath   = Array.isArray(_study.ideal_path) ? _study.ideal_path : [];
-  const expected    = idealPath[_currentStepIndex] ?? null;
-  const isOnPath    = _isOnPath(clickData, expected);
+
+  // Resolve which step this click satisfies before building the event, so the
+  // event is attributed to the step actually matched rather than to a field
+  // step the participant filled by keyboard and never clicked.
+  const matchedIndex = _resolveMatchIndex(clickData, idealPath, _currentStepIndex);
+  const isOnPath     = matchedIndex !== -1;
+  const skippedSteps = isOnPath ? matchedIndex - _currentStepIndex : 0;
+  if (skippedSteps > 0) {
+    // Credit the skipped field steps: they were satisfied, just not by a click.
+    _currentStepIndex = matchedIndex;
+    _completedSteps  += skippedSteps;
+  }
+
   const advancesStep = isOnPath && _totalSteps > 0 && _currentStepIndex < _totalSteps;
   const isMisClick  = !isOnPath;
 
