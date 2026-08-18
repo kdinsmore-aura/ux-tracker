@@ -150,6 +150,7 @@ function _captureForStep(step) {
     const blob = await _renderViewportBlob();
     if (!blob) return;
     try {
+      // Object path, not a URL — see the note in captureCurrentScreen().
       step.screenshotUrl = await uploadScreenshot(
         _state.studyId, `step-${step.stepIndex}-${screenId}`, blob,
       );
@@ -193,8 +194,13 @@ async function captureCurrentScreen() {
       captured_at: new Date().toISOString(),
     };
     // Only touch screenshot_url on a successful upload — upsert updates
-    // every provided column, so sending null here would clobber a good URL
+    // every provided column, so sending null here would clobber a good value
     // from an earlier recording whenever an upload fails.
+    //
+    // NOTE: since the bucket went private this column holds a bucket-relative
+    // object PATH, not a URL, despite the name. Historical rows still hold
+    // absolute public URLs; readers pass either form through
+    // screenshotPathFromStored() before signing, so both keep rendering.
     if (screenshotUrl) row.screenshot_url = screenshotUrl;
     await upsertScreen(row);
   } catch (err) {
@@ -733,6 +739,7 @@ class UxtRecorderPanel extends HTMLElement {
       try {
         const blob = await _renderViewportBlob();
         if (blob) {
+          // Object path, not a URL — see the note in captureCurrentScreen().
           last.endScreenshotUrl = await uploadScreenshot(
             _state.studyId, `end-${last.endScreenId}`, blob,
           );

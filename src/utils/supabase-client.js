@@ -226,38 +226,154 @@ export async function fetchEventsForScreen(studyId, screenId) {
   return data;
 }
 
-// ─── Storage operations (direct — recorder runs on a trusted machine) ─────────
+// ─── Storage operations ───────────────────────────────────────────────────────
+//
+// The screenshots bucket is PRIVATE. Two consequences shape everything below:
+//
+//   1. Uploads go through the ingest Edge Function (service role), never
+//      directly from the participant's browser. A direct anon upload with
+//      upsert:true requires anon INSERT + UPDATE + SELECT on storage.objects,
+//      and that SELECT is the same one that backs storage list() — it let
+//      anyone with the publishable key enumerate every screenshot path.
+//   2. There is no durable public URL. Uploads return an object PATH, and
+//      researcher surfaces mint short-lived signed URLs at render time.
 
 /**
  * Build a flat, storage-safe object key for a screen's screenshot.
  *
  * Screen IDs are normalised URLs and routinely contain characters that are
  * unsafe in a Supabase Storage path: '/' (creates nested folders + a leading
- * '//'), and — critically — '?', '&', '=', '#' from query strings. Supabase's
- * getPublicUrl() wraps the path in encodeURI(), which does NOT escape '?'/'='/'&',
- * so a screen ID like '/page.html?x=y' yields a URL ending '…/page.html?x=y.png'
- * where '?x=y.png' is parsed as the query string — the object is uploaded under
- * a truncated key and the public URL 404s. Collapsing every unsafe character to
- * '_' produces a stable, round-trippable key (e.g. '_page.html_x_y').
+ * '//'), and — critically — '?', '&', '=', '#' from query strings. Collapsing
+ * every unsafe character to '_' produces a stable, round-trippable key
+ * (e.g. '_page.html_x_y'). The Edge Function applies the identical collapse;
+ * both must agree or a re-record writes a second object instead of
+ * overwriting the first.
  */
 function _screenshotKey(studyId, screenId) {
   const safe = String(screenId).replace(/[^a-zA-Z0-9._-]/g, '_');
   return `${studyId}/${safe}.png`;
 }
 
+/**
+ * Upload a screenshot via the ingest Edge Function and return its object path.
+ *
+ * Returns a PATH ('<studyId>/<screenId>.png'), not a URL — the bucket is
+ * private. Callers persist this value; renderers pass it through
+ * signScreenshotUrls() to get something an <img src> can load.
+ */
 export async function uploadScreenshot(studyId, screenId, blob) {
-  const path = _screenshotKey(studyId, screenId);
-  const { error } = await getClient()
-    .storage
-    .from(SCREENSHOT_BUCKET)
-    .upload(path, blob, { contentType: blob.type || 'image/png', upsert: true });
-  if (error) _wrap('uploadScreenshot', error);
-  const { data } = getClient().storage.from(SCREENSHOT_BUCKET).getPublicUrl(path);
-  return data.publicUrl;
+  const buf = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  // Chunked so a multi-hundred-KB screenshot cannot blow the argument limit
+  // that String.fromCharCode(...spread) hits on large arrays.
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  const data = await ingest('uploadScreenshot', {
+    studyId,
+    screenId,
+    contentType: blob.type || 'image/png',
+    data: btoa(binary),
+  });
+  return data?.path ?? _screenshotKey(studyId, screenId);
 }
 
-export async function getScreenshotUrl(studyId, screenId) {
-  const path = _screenshotKey(studyId, screenId);
-  const { data } = getClient().storage.from(SCREENSHOT_BUCKET).getPublicUrl(path);
-  return data.publicUrl;
+/**
+ * Normalise a persisted screenshot value to a bucket-relative object path.
+ *
+ * Rows written before the bucket went private hold absolute public URLs
+ * ('https://<ref>.supabase.co/storage/v1/object/public/<bucket>/<path>').
+ * Rows written since hold the bare path. Both must render, so accept either
+ * rather than migrating historical values — the object keys never changed,
+ * only the way they are addressed.
+ *
+ * Returns null for empty input or a URL that does not point at this bucket.
+ */
+export function screenshotPathFromStored(value) {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  // Anything carrying a scheme is treated as a URL and must point at this
+  // bucket. Without this, a malformed value ('bogus://x') would fall through as
+  // a path and get signed, yielding a URL that 404s at <img> load time instead
+  // of the clean "No screenshot" state a null produces.
+  if (!/:\/\//.test(trimmed)) {
+    // Already a path. Tolerate a leading slash and a legacy bucket prefix.
+    return trimmed.replace(/^\/+/, '').replace(new RegExp(`^${SCREENSHOT_BUCKET}/`), '');
+  }
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  const marker = `/${SCREENSHOT_BUCKET}/`;
+  const at = trimmed.indexOf(marker);
+  if (at === -1) return null;
+  const raw = trimmed.slice(at + marker.length).split(/[?#]/)[0];
+  if (!raw) return null;
+  // getPublicUrl() wrapped the key in encodeURI(); undo that so the path
+  // matches the stored object key exactly.
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/** Default signed-URL lifetime. Long enough that a dashboard left open through
+ *  a review session keeps rendering; short enough that a copied URL is not a
+ *  durable public link. Surfaces re-sign whenever they reload their data. */
+export const SIGNED_URL_TTL_SECONDS = 3600;
+
+/**
+ * Batch-sign stored screenshot values for display.
+ *
+ * Takes the values as persisted (public URL or path) and returns a Map from
+ * the ORIGINAL value to a signed URL, so callers can swap in place without
+ * tracking the path conversion themselves. Values that cannot be resolved, or
+ * that Storage declines to sign (a missing object), map to null.
+ *
+ * Requires an authenticated session: signing reads storage.objects, which is
+ * granted to the authenticated role only. Researcher surfaces (dashboard,
+ * setup) are signed in; the participant runtime never renders screenshots.
+ */
+export async function signScreenshotUrls(values, expiresIn = SIGNED_URL_TTL_SECONDS) {
+  const out = new Map();
+  const list = Array.from(new Set((values || []).filter(Boolean)));
+  if (!list.length) return out;
+
+  // Original value → path, deduped by path so one object is signed once even
+  // when both a public URL and a bare path for it appear in the same payload.
+  const pathFor = new Map();
+  const uniquePaths = new Set();
+  for (const v of list) {
+    const p = screenshotPathFromStored(v);
+    if (!p) { out.set(v, null); continue; }
+    pathFor.set(v, p);
+    uniquePaths.add(p);
+  }
+  if (!uniquePaths.size) return out;
+
+  const paths = Array.from(uniquePaths);
+  const { data, error } = await getClient()
+    .storage
+    .from(SCREENSHOT_BUCKET)
+    .createSignedUrls(paths, expiresIn);
+  if (error) _wrap('signScreenshotUrls', error);
+
+  // createSignedUrls resolves per item: a missing object yields an entry with
+  // error set and signedUrl null rather than failing the whole batch.
+  const signedFor = new Map();
+  for (const entry of data || []) {
+    const key = entry?.path ?? null;
+    if (key) signedFor.set(key, entry?.signedUrl ?? null);
+  }
+  for (const [orig, p] of pathFor) {
+    out.set(orig, signedFor.get(p) ?? null);
+  }
+  return out;
+}
+
+/** Sign a single stored screenshot value. Returns null if it cannot be signed. */
+export async function signScreenshotUrl(value, expiresIn = SIGNED_URL_TTL_SECONDS) {
+  const map = await signScreenshotUrls([value], expiresIn);
+  return map.get(value) ?? null;
 }

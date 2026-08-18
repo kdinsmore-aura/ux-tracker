@@ -10,7 +10,7 @@ UX Tracker is a lightweight, script-tag framework for running moderated usabilit
 ## One-time setup
 
 1. Open the Supabase SQL editor and run [`supabase/schema.sql`](supabase/schema.sql).
-2. In **Storage**, create a public bucket named `screenshots`.
+2. Create the screenshots bucket and its policy by running [`supabase/storage-policy.sql`](supabase/storage-policy.sql). The bucket is **private** — screenshots are served to the dashboard through short-lived signed URLs, and the recorder uploads them via the Edge Function rather than directly.
 3. Copy your project URL and `anon` key from **Project Settings → API**.
 4. Deploy the Edge Function — see [supabase/functions/README.md](supabase/functions/README.md).
 

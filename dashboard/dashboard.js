@@ -84,6 +84,15 @@ function dashboardApp() {
     // ── Screens ────────────────────────────────────────────────────────────
     screens: { loading: false, error: '', loaded: false, list: [] },
 
+    // ── Screenshot signing ─────────────────────────────────────────────────
+    // The screenshots bucket is private, so stored values are object paths (or
+    // legacy public URLs) rather than anything an <img> can load. `signed` maps
+    // a stored value → short-lived signed URL, filled in asynchronously after
+    // each data load. Renderers read it through _shot(), which returns null
+    // until the signature lands — the same "no screenshot" state the UI already
+    // handles, so nothing flashes a broken image.
+    shots: { signed: {}, signedAt: 0, error: '' },
+
     // ── Click maps (heatmaps) ──────────────────────────────────────────────
     heatmap: {
       mode: 'steps',        // 'steps' (one map per recorded step) | 'screens' (by URL)
@@ -387,8 +396,57 @@ function dashboardApp() {
     // SCREENS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /** Resolve a stored screenshot value to a signed URL, or null if not yet
+     *  signed / not signable. Safe to call from getters — never async. */
+    _shot(value) {
+      if (!value) return null;
+      const s = this.shots.signed[value];
+      return s === undefined ? null : s;
+    },
+
+    /**
+     * Sign every screenshot value reachable from the currently loaded data.
+     *
+     * Called after the study and after screens load, and re-run on refresh so
+     * signatures stay ahead of their TTL. Signing the whole set in one batch
+     * keeps this to a single Storage round trip rather than one per image.
+     */
+    async signLoadedShots(force = false) {
+      if (!window.UXTrackerShots) return;
+      // Signed URLs expire (UXTrackerShots.TTL_SECONDS). Re-sign on a half-TTL
+      // cadence so a dashboard left open across a long review session never
+      // renders an expired URL, while repeated view switches inside the window
+      // cost nothing.
+      const refreshMs = (window.UXTrackerShots.TTL_SECONDS * 1000) / 2;
+      if (!force && this.shots.signedAt && (Date.now() - this.shots.signedAt) < refreshMs) return;
+      const values = [];
+      (this.screens.list || []).forEach((sc) => {
+        if (sc.screenshot_url) values.push(sc.screenshot_url);
+      });
+      (this.study?.ideal_path || []).forEach((p) => {
+        if (p.screenshotUrl) values.push(p.screenshotUrl);
+        if (p.endScreenshotUrl) values.push(p.endScreenshotUrl);
+      });
+      if (!values.length) return;
+      try {
+        const signed = await window.UXTrackerShots.signMany(this._db, values);
+        // Replace wholesale so Alpine sees a new object and re-renders the
+        // getters that depend on it.
+        this.shots.signed = Object.assign({}, this.shots.signed, signed);
+        this.shots.signedAt = Date.now();
+        this.shots.error = '';
+      } catch (e) {
+        this.shots.error = 'Failed to sign screenshot URLs: ' + (e.message || String(e));
+      }
+    },
+
     async loadScreens(force = false) {
-      if (this.screens.loaded && !force) return;
+      if (this.screens.loaded && !force) {
+        // Screens are cached, but signatures are not — refresh them if the
+        // half-TTL window has passed.
+        await this.signLoadedShots();
+        return;
+      }
       this.screens.loading = true;
       this.screens.error = '';
       try {
@@ -400,6 +458,9 @@ function dashboardApp() {
         if (error) throw error;
         this.screens.list = data || [];
         this.screens.loaded = true;
+        // Screens carry most screenshot values; sign them (plus the study's
+        // per-step captures) as soon as they arrive.
+        await this.signLoadedShots(true);
       } catch (e) {
         this.screens.error = 'Failed to load screens: ' + (e.message || String(e));
       } finally {
@@ -820,7 +881,7 @@ function dashboardApp() {
           key: 's:' + s.screen_id, kind: 'screen',
           label: this._shortScreen(s.screen_id), sub: s.screen_id,
           screenId: this._normScreen(s.screen_id),
-          shot: s.screenshot_url, vw: s.viewport_width, vh: s.viewport_height,
+          shot: this._shot(s.screenshot_url), vw: s.viewport_width, vh: s.viewport_height,
           stale: s.is_stale, staleAt: s.change_detected_at,
         }));
       }
@@ -833,7 +894,7 @@ function dashboardApp() {
           label: 'Step ' + (i + 1),
           sub: p.elementText || p.elementSelector || sid,
           screenId: sid,
-          shot: p.screenshotUrl || scr?.screenshot_url || null,
+          shot: this._shot(p.screenshotUrl) || this._shot(scr?.screenshot_url) || null,
           vw: scr?.viewport_width, vh: scr?.viewport_height,
           stale: scr?.is_stale, staleAt: scr?.change_detected_at,
           expected: p.elementText || '', expectedSel: p.elementSelector || '',
@@ -846,7 +907,7 @@ function dashboardApp() {
         items.push({
           key: 'p:end', kind: 'end', label: 'End screen', sub: endSid,
           screenId: endSid,
-          shot: last.endScreenshotUrl || scr?.screenshot_url || null,
+          shot: this._shot(last.endScreenshotUrl) || this._shot(scr?.screenshot_url) || null,
           vw: scr?.viewport_width, vh: scr?.viewport_height,
           stale: scr?.is_stale, staleAt: scr?.change_detected_at,
         });
@@ -1329,21 +1390,21 @@ function dashboardApp() {
         evs.find((e) => e.event_type === 'session_start')?.screen_id || path[0]?.screenId);
       const stations = [{
         kind: 'start', label: 'Start', screenId: startScreen,
-        shot: screensMap[startScreen] || null, reached: true, ms: 0,
+        shot: this._shot(screensMap[startScreen]) || null, reached: true, ms: 0,
       }];
       path.forEach((p, i) => {
         const sid = this._normScreen(p.screenId);
         stations.push({
           kind: 'step', idx: i, label: String(i + 1), screenId: sid,
           elementText: p.elementText || '', selector: p.elementSelector || '',
-          shot: p.screenshotUrl || screensMap[sid] || null,
+          shot: this._shot(p.screenshotUrl) || this._shot(screensMap[sid]) || null,
           reached: false, ms: null,
         });
       });
       if (endScreen) {
         stations.push({
           kind: 'end', label: 'End', screenId: endScreen,
-          shot: lastStep.endScreenshotUrl || screensMap[endScreen] || null,
+          shot: this._shot(lastStep.endScreenshotUrl) || this._shot(screensMap[endScreen]) || null,
           reached: false, ms: null,
         });
       }

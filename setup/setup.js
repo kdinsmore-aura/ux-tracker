@@ -42,7 +42,11 @@ function setupApp() {
 
     // ── Step 4 — Review path ──────────────────────────────────────────────────
     idealPath: [],
-    pathScreens: {},     // screen_id → screenshot_url
+    pathScreens: {},     // screen_id → stored screenshot value (object path)
+    // The screenshots bucket is private, so stored values are object paths (or
+    // legacy public URLs) rather than anything an <img> can load. `signed` maps
+    // a stored value → short-lived signed URL, filled in after the path loads.
+    shots: { signed: {}, signedAt: 0, error: '' },
     pathLoading: false,
     pathError: '',
     previewIndex: null,  // index into previewItems for the screenshot modal (null = closed)
@@ -682,6 +686,9 @@ function setupApp() {
         for (const s of scr.data || []) { m[s.screen_id] = s.screenshot_url; }
         this.pathScreens = m;
 
+        // Screenshots need signing before anything can render them.
+        await this.signLoadedShots(true);
+
         // Tasks (prompts + instructions) are editable right here — including
         // tasks created on the fly during the recording.
         this.pathTasks = (Array.isArray(sr.data.tasks) ? sr.data.tasks : []).map(t => ({
@@ -1024,10 +1031,47 @@ function setupApp() {
       return `~${(ms / 1000).toFixed(1)}s`;
     },
 
+    /** Resolve a stored screenshot value to a signed URL, or null if not yet
+     *  signed / not signable. Safe to call from getters — never async. */
+    _shot(value) {
+      if (!value) return null;
+      const s = this.shots.signed[value];
+      return s === undefined ? null : s;
+    },
+
+    /**
+     * Sign every screenshot value reachable from the loaded path, in one batch.
+     *
+     * Signed URLs expire, so this re-runs on a half-TTL cadence — a researcher
+     * can sit on the review step longer than the TTL before saving.
+     */
+    async signLoadedShots(force = false) {
+      if (!window.UXTrackerShots) return;
+      const refreshMs = (window.UXTrackerShots.TTL_SECONDS * 1000) / 2;
+      if (!force && this.shots.signedAt && (Date.now() - this.shots.signedAt) < refreshMs) return;
+
+      const values = Object.values(this.pathScreens || {}).filter(Boolean);
+      (this.idealPath || []).forEach((p) => {
+        if (p.screenshotUrl) values.push(p.screenshotUrl);
+        if (p.endScreenshotUrl) values.push(p.endScreenshotUrl);
+      });
+      if (!values.length) return;
+      try {
+        const signed = await window.UXTrackerShots.signMany(this._db, values);
+        this.shots.signed = Object.assign({}, this.shots.signed, signed);
+        this.shots.signedAt = Date.now();
+        this.shots.error = '';
+      } catch (e) {
+        this.shots.error = 'Failed to sign screenshot URLs: ' + (e.message || String(e));
+      }
+    },
+
     // Resolve a step's screenshot: prefer the per-step capture, fall back to the
     // screen-level one (older recordings have no per-step screenshotUrl).
     stepShot(step) {
-      return (step && step.screenshotUrl) || (step && this.pathScreens[step.screenId]) || null;
+      return (step && this._shot(step.screenshotUrl))
+          || (step && this._shot(this.pathScreens[step.screenId]))
+          || null;
     },
 
     // The recorded steps plus an optional trailing "final screen" card.
@@ -1049,7 +1093,7 @@ function setupApp() {
           selector: null,
           text: null,
           duration: null,
-          url: last.endScreenshotUrl,
+          url: this._shot(last.endScreenshotUrl),
           isEnd: true,
         });
       }
@@ -1060,7 +1104,11 @@ function setupApp() {
       return this.previewIndex == null ? null : (this.previewItems[this.previewIndex] || null);
     },
 
-    openPreview(i) { this.previewIndex = i; },
+    openPreview(i) {
+      this.previewIndex = i;
+      // Guarded by the half-TTL check, so this is a no-op inside the window.
+      this.signLoadedShots().catch(() => {});
+    },
     closePreview() { this.previewIndex = null; },
 
     previewPrev() {

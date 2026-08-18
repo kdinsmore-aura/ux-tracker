@@ -46,6 +46,26 @@ const ALLOWED_PARTICIPANT_STATUSES = new Set([
   'abandoned',
 ]);
 
+const SCREENSHOT_BUCKET = 'ux-tracker-screenshots';
+
+// Mirrors the bucket's own file_size_limit (5 MB). Checked here too so an
+// oversized capture is rejected before it is decoded and streamed onward.
+const SCREENSHOT_MAX_BYTES = 5 * 1024 * 1024;
+
+const ALLOWED_SCREENSHOT_MIME = new Set(['image/png', 'image/jpeg']);
+
+/** Decode a base64 payload to bytes. Returns null if the input is not valid base64. */
+function decodeBase64(b64: string): Uint8Array | null {
+  try {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -337,6 +357,57 @@ Deno.serve(async (req: Request) => {
           return fail('Failed to upsert screen');
         }
         return ok(data);
+      }
+
+      // Screenshot upload is brokered here rather than performed directly from
+      // the participant's browser. A direct upload needs anon INSERT + UPDATE on
+      // storage.objects, and — because Storage resolves an upsert by reading the
+      // existing row AS THE CALLER — anon SELECT as well. That SELECT is
+      // indistinguishable from the one backing storage list(), so it let anyone
+      // holding the publishable key enumerate every screenshot path in the
+      // bucket (advisor lint 0025, diagnosed 2026-07-17). Uploading with the
+      // service role instead means the bucket needs no anon policies at all and
+      // can stay private.
+      case 'uploadScreenshot': {
+        const { studyId, screenId, contentType, data: b64 } = payload;
+        if (!studyId) return bad('studyId is required');
+        if (!screenId) return bad('screenId is required');
+        if (typeof b64 !== 'string' || !b64) return bad('data is required');
+
+        const mime = typeof contentType === 'string' && contentType
+          ? contentType
+          : 'image/png';
+        if (!ALLOWED_SCREENSHOT_MIME.has(mime)) {
+          return bad('contentType must be image/png or image/jpeg');
+        }
+
+        // Same collapse the recorder used to apply client-side: screen ids are
+        // URL- and selector-derived, and an unescaped '/' would silently nest
+        // the object under a new folder while '?' or '#' would truncate the key.
+        const safeScreen = String(screenId).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const safeStudy  = String(studyId).replace(/[^a-zA-Z0-9._-]/g, '_');
+        if (!safeScreen || !safeStudy) return bad('studyId and screenId must contain usable characters');
+        const objectPath = `${safeStudy}/${safeScreen}.png`;
+
+        const bytes = decodeBase64(b64);
+        if (!bytes) return bad('data must be base64-encoded');
+        if (bytes.byteLength === 0) return bad('data decoded to zero bytes');
+        if (bytes.byteLength > SCREENSHOT_MAX_BYTES) {
+          return bad('screenshot exceeds the 5 MB limit');
+        }
+
+        const { error } = await db
+          .storage
+          .from(SCREENSHOT_BUCKET)
+          .upload(objectPath, bytes, { contentType: mime, upsert: true });
+        if (error) {
+          console.error('uploadScreenshot:', error);
+          return fail('Failed to upload screenshot');
+        }
+
+        // The object PATH is returned, not a URL. The bucket is private, so a
+        // durable URL does not exist — researcher surfaces sign these on demand.
+        return ok({ path: objectPath });
       }
 
       case 'markScreenStale': {

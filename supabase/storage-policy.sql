@@ -3,8 +3,10 @@
 -- ============================================================
 --
 -- IMPORTANT: The bucket name 'ux-tracker-screenshots' must match
--- the SCREENSHOT_BUCKET constant in src/utils/supabase-client.js.
--- Changing one without the other will break screenshot uploads.
+-- the SCREENSHOT_BUCKET constant in src/utils/supabase-client.js,
+-- the same constant in supabase/functions/ux-tracker-ingest, and
+-- BUCKET in shared/screenshot-urls.js. Changing one without the
+-- others will break screenshot uploads or rendering.
 --
 -- Run this file once during project setup via the Supabase SQL
 -- editor or the CLI:  supabase db reset  (if included in migrations)
@@ -15,13 +17,16 @@
 -- file_size_limit : 5 242 880 bytes = 5 MB
 -- allowed_mime_types : restricts uploads to PNG and JPEG only;
 --   rejects other image formats (webp, gif, avif) at the storage layer.
--- public : true — objects are readable without a signed URL.
+-- public : FALSE — screenshots are not publicly readable. Reads on a
+--   public bucket bypass RLS entirely, so a public bucket cannot be
+--   protected by policies no matter how they are written. Researcher
+--   surfaces render screenshots through short-lived signed URLs.
 
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
   'ux-tracker-screenshots',
   'ux-tracker-screenshots',
-  true,
+  false,
   5242880,
   ARRAY['image/png', 'image/jpeg']
 )
@@ -30,62 +35,36 @@ ON CONFLICT (id) DO NOTHING;
 
 -- ---- Policies ----------------------------------------------
 -- storage.objects already has RLS enabled in every Supabase project;
--- these policies layer on top of that default.
+-- this policy layers on top of that default.
+--
+-- There is exactly ONE policy, and no anon policy at all.
+--
+-- Uploads do not need one: the recorder posts screenshots to the
+-- ux-tracker-ingest Edge Function, which writes them with the service
+-- role. The service role bypasses RLS.
+--
+-- This is deliberate rather than incidental. Uploading directly from the
+-- participant's browser requires anon INSERT, anon UPDATE (the recorder
+-- upserts, since re-recording a study reuses object keys) and anon SELECT
+-- — Supabase Storage resolves an upsert by first reading the existing row
+-- as the requesting role. That SELECT is the same one that backs storage
+-- list(), so it let anyone holding the publishable key enumerate every
+-- screenshot path in the bucket (advisor lint 0025). Brokering the upload
+-- through the Edge Function removes all three.
 
--- Anon read: REQUIRED for upsert overwrites, not just convenience.
--- Supabase Storage resolves an upsert by first looking up the existing
--- object row as the requesting role; without SELECT the row is invisible
--- and every re-upload fails with "new row violates row-level security
--- policy" — which breaks all screenshots from a study's second recording
--- onward. Trade-off (accepted): anyone with the anon key can LIST this
--- bucket's object names (screen-id-derived filenames; advisor lint 0025).
--- The images themselves are public regardless — the bucket is public.
-CREATE POLICY "screenshots_anon_select"
-  ON storage.objects FOR SELECT
-  TO anon
-  USING (bucket_id = 'ux-tracker-screenshots');
-
--- Anon write: the UX Tracker recorder script uploads screenshots
--- immediately after capturing a DOM fingerprint. It runs in the
--- participant's browser without a researcher auth session, so INSERT
--- must be permitted for the anon role.
-CREATE POLICY "screenshots_anon_insert"
-  ON storage.objects FOR INSERT
-  TO anon
-  WITH CHECK (bucket_id = 'ux-tracker-screenshots');
-
--- Anon update: the recorder uploads with upsert:true, so re-capturing a screen
--- (e.g. recording the same study more than once) overwrites the existing object.
--- Supabase Storage treats an upsert over an existing object as an UPDATE, which
--- requires its own policy in addition to INSERT. Without this, every capture
--- after the first is denied, uploadScreenshot() throws, and the screen's
--- screenshot_url is overwritten with NULL — leaving "No screenshot" in the UI
--- even though a stale file remains in the bucket.
-CREATE POLICY "screenshots_anon_update"
-  ON storage.objects FOR UPDATE
-  TO anon
-  USING (bucket_id = 'ux-tracker-screenshots')
-  WITH CHECK (bucket_id = 'ux-tracker-screenshots');
-
--- Authenticated mirror of the three policies above — defense in depth.
--- supabase-js shares its persisted auth session across every client on an
--- origin; when a prototype page shares an origin with the researcher tools
--- (the GitHub Pages sample does), an old cached tracker bundle could upload
--- with the researcher's JWT instead of anon. The current bundle opts out of
--- session persistence, but a signed-in researcher is a legitimate uploader
--- anyway, so both roles are granted.
+-- Authenticated read: REQUIRED for rendering, not convenience. The bucket
+-- is private, so the dashboard and setup pages mint signed URLs with
+-- createSignedUrl() — and signing reads storage.objects. Both pages sign
+-- in with Supabase Auth (signInWithPassword) before loading data, so this
+-- sits behind researcher login. The participant runtime never renders
+-- screenshots and so never needs to sign.
+--
+-- Still bucket-scoped rather than per-study: a signed-in researcher can
+-- sign any screenshot in the project. That matches the table policies,
+-- which are all `authenticated USING (true)` as of 20260716120000. If
+-- researchers ever gain per-study scoping, this should follow the same
+-- model rather than inventing its own.
 CREATE POLICY "screenshots_auth_select"
   ON storage.objects FOR SELECT
   TO authenticated
   USING (bucket_id = 'ux-tracker-screenshots');
-
-CREATE POLICY "screenshots_auth_insert"
-  ON storage.objects FOR INSERT
-  TO authenticated
-  WITH CHECK (bucket_id = 'ux-tracker-screenshots');
-
-CREATE POLICY "screenshots_auth_update"
-  ON storage.objects FOR UPDATE
-  TO authenticated
-  USING (bucket_id = 'ux-tracker-screenshots')
-  WITH CHECK (bucket_id = 'ux-tracker-screenshots');

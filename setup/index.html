@@ -721,7 +721,7 @@
                 <div class="path-text">Destination after the last recorded step.</div>
               </div>
               <img class="path-thumb"
-                   :src="idealPath[idealPath.length - 1].endScreenshotUrl"
+                   :src="_shot(idealPath[idealPath.length - 1].endScreenshotUrl)"
                    alt="Final screen"
                    loading="lazy"
                    role="button"
@@ -1063,6 +1063,7 @@
 </div><!-- /x-data -->
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="../shared/screenshot-urls.js"></script>
 <script src="setup.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </body>
